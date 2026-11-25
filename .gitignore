@@ -1,0 +1,9 @@
+# 编译产物
+dist/*.exe
+dist/*.dll
+dist/*.bmp
+dist/*.log
+windows/*.res
+windows/*.obj
+tools/*.exe
+*.tar

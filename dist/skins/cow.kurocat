@@ -1,0 +1,82 @@
+{
+ "formatVersion": 1,
+ "name": "奶牛猫",
+ "author": "kurocat-own",
+ "palette": {
+  "body": "#1C1C21",
+  "bodyShade": "#141418",
+  "belly": "#F9F8F4",
+  "legs": "#F9F8F4",
+  "paws": "#FFFFFF",
+  "earOuter": "#1C1C21",
+  "earInner": "#C9A0A0",
+  "tail": "#1C1C21",
+  "tailTip": "#F9F8F4",
+  "iris": "#CFAE52",
+  "nose": "#E3B6B0",
+  "mouth": "#A87F7C",
+  "outline": "#0C0C0F55",
+  "crease": "#D1EBE3C2",
+  "whiskers": "#E0E6EBAD"
+ },
+ "shape": {
+  "build": "standard",
+  "cheekFullness": 1.05
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": [
+  {
+   "space": "head",
+   "kind": "polygon",
+   "color": "#F9F8F4",
+   "alpha": 0.95,
+   "points": [
+    [
+     0,
+     -38
+    ],
+    [
+     -9,
+     -18
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     9,
+     -18
+    ]
+   ]
+  },
+  {
+   "space": "body",
+   "kind": "polygon",
+   "color": "#F9F8F4",
+   "alpha": 0.9,
+   "points": [
+    [
+     -40,
+     -46
+    ],
+    [
+     -14,
+     -54
+    ],
+    [
+     6,
+     -30
+    ],
+    [
+     -16,
+     -12
+    ],
+    [
+     -42,
+     -20
+    ]
+   ]
+  }
+ ]
+}

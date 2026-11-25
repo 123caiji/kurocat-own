@@ -1,0 +1,137 @@
+{
+ "formatVersion": 1,
+ "name": "三花猫",
+ "author": "kurocat-own",
+ "palette": {
+  "body": "#F8F4EC",
+  "bodyShade": "#EDE4D6",
+  "belly": "#FFFFFF",
+  "legs": "#FFFFFF",
+  "paws": "#FFFFFF",
+  "earOuter": "#2E2B2C",
+  "earInner": "#E6A98F",
+  "tail": "#2E2B2C",
+  "iris": "#D9A24A",
+  "nose": "#E0A79E",
+  "mouth": "#C08E85",
+  "outline": "#C7B9A054",
+  "crease": "#8B817199",
+  "whiskers": "#8D81708C",
+  "stripes": "#E0954F"
+ },
+ "shape": {
+  "build": "standard"
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": [
+  {
+   "space": "head",
+   "kind": "polygon",
+   "color": "#E0954F",
+   "alpha": 0.92,
+   "points": [
+    [
+     8,
+     -34
+    ],
+    [
+     40,
+     -22
+    ],
+    [
+     38,
+     4
+    ],
+    [
+     14,
+     8
+    ],
+    [
+     2,
+     -14
+    ]
+   ]
+  },
+  {
+   "space": "head",
+   "kind": "polygon",
+   "color": "#2E2B2C",
+   "alpha": 0.9,
+   "points": [
+    [
+     -42,
+     -6
+    ],
+    [
+     -20,
+     -18
+    ],
+    [
+     -14,
+     8
+    ],
+    [
+     -34,
+     18
+    ],
+    [
+     -44,
+     6
+    ]
+   ]
+  },
+  {
+   "space": "body",
+   "kind": "polygon",
+   "color": "#E0954F",
+   "alpha": 0.85,
+   "points": [
+    [
+     18,
+     -64
+    ],
+    [
+     46,
+     -52
+    ],
+    [
+     44,
+     -10
+    ],
+    [
+     24,
+     -6
+    ],
+    [
+     14,
+     -34
+    ]
+   ]
+  },
+  {
+   "space": "body",
+   "kind": "polygon",
+   "color": "#2E2B2C",
+   "alpha": 0.85,
+   "points": [
+    [
+     -44,
+     -40
+    ],
+    [
+     -22,
+     -46
+    ],
+    [
+     -18,
+     -12
+    ],
+    [
+     -40,
+     -6
+    ]
+   ]
+  }
+ ]
+}

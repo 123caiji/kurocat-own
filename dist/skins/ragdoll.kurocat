@@ -1,0 +1,33 @@
+{
+ "formatVersion": 1,
+ "name": "暖奶茶布偶猫",
+ "author": "kurocat-own",
+ "palette": {
+  "body": "#F4E8D9",
+  "bodyShade": "#E7D6C3",
+  "belly": "#FBF5EC",
+  "legs": "#F7EEE3",
+  "paws": "#FDF9F4",
+  "points": "#6E584D",
+  "pointsMid": "#B29A87",
+  "earOuter": "#6E584D",
+  "earInner": "#C39A92",
+  "tail": "#6E584D",
+  "tailTip": "#4B3A32",
+  "iris": "#8FC3E8",
+  "nose": "#DCA79E",
+  "mouth": "#B98C80",
+  "outline": "#C9B6A066",
+  "crease": "#8D78678A",
+  "whiskers": "#8D81705E",
+  "stripe": "#DCC9B4"
+ },
+ "shape": {
+  "build": "standard",
+  "cheekFullness": 1.08,
+  "bodyWidth": 1.04
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": []
+}
