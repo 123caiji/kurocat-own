@@ -88,7 +88,10 @@ kurocat-own/
 
 ## 🗺️ 二次创作路线
 
-想做自己的猫、自己的玩法？见 **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 皮肤生态、行为创新、数据可视化、集成扩展、工程化五条线，附工作量与优先级。
+想做自己的猫、自己的玩法？两份文档：
+
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 皮肤生态、行为创新、数据可视化、集成扩展、工程化五条线（26 个点子，含工作量）
+- **[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)** —— **DSH 桌宠插件生态调研（dsh-pet / dsh-desktop-pet / Live2D 系）+ 本项目的差距、美观与实用优化清单、阶段计划与验收线**
 
 ## 📄 许可与来源
 
