@@ -1,14 +1,34 @@
 @echo off
+setlocal
 cd /d "%~dp0"
-echo 编译 Tama ...
-where g++ >nul 2>nul || (echo 需要 MinGW g++ & pause & exit /b 1)
-windres windows\app.rc -O coff -o windows\app.res || (echo manifest 编译失败 & pause & exit /b 1)
-windres windows\tama.rc -O coff -o windows\tama.res -I windows || (echo 版本资源编译失败 & pause & exit /b 1)
-g++ -std=c++17 -O2 -mwindows -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -static ^
-  windows\src\main.cpp windows\app.res windows\tama.res -o dist\tama.exe ^
-  -luser32 -lgdi32 -lgdiplus -lshell32 -ladvapi32 -lwinhttp -lwtsapi32
-if errorlevel 1 (echo 编译失败 & pause & exit /b 1)
+echo [Tama] building...
+where g++ >nul 2>nul
+if errorlevel 1 goto nogcc
+where windres >nul 2>nul
+if errorlevel 1 goto nowindres
+windres windows\app.rc -O coff -o windows\app.res
+if errorlevel 1 goto errmain
+g++ -std=c++17 -O2 -mwindows -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -static windows\src\main.cpp windows\app.res -o dist\tama.exe -luser32 -lgdi32 -lgdiplus -lshell32 -ladvapi32 -lwinhttp -lwtsapi32
+if errorlevel 1 goto errcc
 if not exist dist\skins mkdir dist\skins
 xcopy /y /q skins\*.kurocat dist\skins\ >nul
-echo [ok] dist\tama.exe
-pause
+echo [OK] dist\tama.exe
+goto done
+:nogcc
+echo [ERR] g++ not found in PATH
+goto done
+:nowindres
+echo [ERR] windres not found in PATH
+goto done
+:errmain
+echo [ERR] manifest resource failed
+goto done
+:errver
+echo [ERR] version resource failed
+goto done
+:errcc
+echo [ERR] compile failed
+goto done
+:done
+if not "%~1"=="--no-pause" pause
+endlocal

@@ -2,6 +2,18 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [v0.6.3 · 构建脚本修复 + 资源合并] · 2026-11-25
+
+**修复（严重）**
+- `build.cmd` / `run.cmd` 之前是 UTF-8 中文内容，cmd 按 ANSI 解析导致**脚本直接失效**（双击编译失败）
+  → 改为纯 ASCII + CRLF，错误用 `goto` 分支，`--no-pause` 可非交互执行
+- 资源合并进单个 `windows/app.rc`（manifest + VERSIONINFO），去掉双 `.res` 引发的 `.rsrc merge failure` 警告
+
+**自我验证（本轮实测）**
+- `build.cmd --no-pause` → 退出码 0、输出 `[OK] dist\tama.exe`
+- `run.cmd` → 进程启动、窗口 `TamaOverlayWindowClass` 可见
+- 内存 RSS 23.5 MB / 私有 6.1 MB；CPU 0.40 单核（GDI+ 软件绘制基线）
+
 ## [v0.6.2 · 悬空姿态第三轮] · 2026-11-25
 
 **新增**
