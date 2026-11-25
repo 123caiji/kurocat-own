@@ -23,3 +23,10 @@ dist/cmp-*.bmp
 state-dir/
 
 dist/update-check.log
+
+dist/settings*.bmp
+dist/settings-debug.log
+dist/*-shot.bmp
+dist/live.bmp
+dist/full.bmp
+dist/t-*.bmp

@@ -2,6 +2,23 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [v0.5.0 · 原生设置窗口] · 2026-11-25
+
+**新增**
+- **原生设置窗口**（`windows/src/SettingsWindow.hpp`，322 行）：Win32 原生控件，3 个分组（外观 / 行为与反馈 / 系统）+ 27 个控件，随 DPI 缩放
+  - 与右键菜单共用 `applyAppCommand(app, CMD_*)`，行为完全一致
+  - 菜单顶层新增「⚙️ 设置…」；启动参数 `--settings` 可直接打开
+- `tools/wchildren.exe`（枚举子控件验证）、`tools/shotbyclass.cpp`（按类名截图）
+
+**视觉**
+- 新皮肤演示动图 `docs/media/demo-robin.gif`（24 帧 / 163 KB）
+
+**文档**
+- `docs/SETTINGS.md`（功能表、实现要点、实测控件清单）
+
+**已知问题**
+- 自动化环境里 PrintWindow / 屏幕 BitBlt 抓不到原生子控件，仓库暂缺设置窗口截图（窗口本身可用）
+
 ## [v0.4.0 · 安全更新检查] · 2026-11-25
 
 **新增**

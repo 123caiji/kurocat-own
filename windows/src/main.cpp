@@ -53,7 +53,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.4.0";
+constexpr const wchar_t* APP_VERSION = L"0.5.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -121,6 +121,7 @@ enum MenuCmd : UINT {
     CMD_DEMO_BURST,
     CMD_RESET_POS,
     CMD_CHECK_UPDATE,
+    CMD_OPEN_SETTINGS,
     CMD_OPEN_UPDATE,
     CMD_RELAUNCH_ADMIN,
     CMD_TOGGLE_RUN_AS_ADMIN,
@@ -151,6 +152,7 @@ struct AppState {
     CatPhysics physics;
     SkinLibrary skins;
     HWND dressingRoom = nullptr;    // 「换装间」 import window (nullptr when closed)
+    HWND settingsWnd = nullptr;          // 原生设置窗口（SettingsWindow.hpp）
     std::wstring dressingStatusText;  // status line of 换装间; kind 0 neutral, 1 success, 2 error
     int dressingStatusKind = 0;
     float dressingScale = 1.0f;       // DPI scale of the 换装间 layout (design units are 96-dpi pixels)
@@ -1471,157 +1473,18 @@ void confirmDeleteSkin(AppState& app, const std::string& id) {
     refreshDressingRoom(app);
 }
 
-void showContextMenu(AppState& app, POINT screenPt) {
-    HMENU menu = CreatePopupMenu();
-    HMENU appearanceMenu = CreatePopupMenu();   // 外观：键帽/键位图例/跑马灯/键盘配色/瞳色/数位板
-    HMENU windowMenu = CreatePopupMenu();       // 窗口：显示隐藏 / 穿透 / 置顶 / 全屏自动隐藏
-    HMENU systemMenu = CreatePopupMenu();       // 系统：自启 / 管理员 / OBS / 更新
-    HMENU coatMenu = CreatePopupMenu();        // 皮肤：内置毛色 + 导入皮肤 + 工坊/文件夹
+void applyAppCommand(AppState& app, UINT cmd);
+
+#include "SettingsWindow.hpp"
+
+// 菜单与设置窗口共用的命令分发（两者都走这里，避免逻辑重复）
+void applyAppCommand(AppState& app, UINT cmd) {
     bool en = app.settings.isEnglish;
     auto tr = [&](const wchar_t* zh, const wchar_t* eng) -> const wchar_t* { return en ? eng : zh; };
-
-    // Status & live stats header
-    std::wstring statusStr = app.input.isRawInputRegistered
-        ? tr(L"\u25CF \u786C\u4EF6\u7EA7\u5168\u72B6\u6001\u76D1\u542C\u4E2D (Raw Input \u6E38\u620F/\u6253\u5B57)",
-             L"\u25CF Hardware Input Active (Raw Input)")
-        : tr(L"\u26A0 Raw Input \u672A\u542F\u52A8", L"\u26A0 Raw Input Inactive");
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, statusStr.c_str());
-    if (!app.isElevated && app.lastBlockedForegroundTime > 0.0 && nowSeconds() - app.lastBlockedForegroundTime < 600.0) {
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
-            tr(L"\u26A0 \u521A\u624D\u7684\u5E94\u7528\uFF08\u5982 WPS / \u6E38\u620F\uFF09\u4EE5\u7BA1\u7406\u5458\u6743\u9650\u8FD0\u884C\uFF0C\u952E\u76D8\u88AB Windows \u62E6\u622A\u4E86",
-               L"\u26A0 Foreground admin app (e.g. WPS / game) blocked keyboard input"));
-    }
-
-    std::wstring stats = en
-        ? (L"Today " + std::to_wstring(app.input.totalKeystrokesToday)
-            + L"  \u00B7  KPM " + std::to_wstring(app.input.currentKPM())
-            + L"  \u00B7  Pets " + std::to_wstring(app.physics.totalPetSessions))
-        : (L"\u4ECA\u65E5\u51FB\u952E " + std::to_wstring(app.input.totalKeystrokesToday)
-            + L"  \u00B7  KPM " + std::to_wstring(app.input.currentKPM())
-            + L"  \u00B7  \u6478\u732B " + std::to_wstring(app.physics.totalPetSessions) + L" \u6B21");
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, stats.c_str());
-
-    AppendMenuW(windowMenu, MF_STRING, CMD_TOGGLE_VISIBLE, app.isVisible ? tr(L"\u9690\u85CF\u684C\u5BA0", L"Hide Pet") : tr(L"\u663E\u793A\u684C\u5BA0", L"Show Pet"));
-    AppendMenuW(windowMenu, MF_STRING | (app.settings.fullClickThrough ? MF_CHECKED : 0), CMD_TOGGLE_CLICKTHROUGH,
-        tr(L"\u5B8C\u5168\u9F20\u6807\u7A7F\u900F (Ctrl+Alt+Shift+P / \u6309\u4F4FAlt\u53EF\u53F3\u952E)",
-           L"Full Click-Through (Ctrl+Alt+Shift+P / Hold Alt)"));
-    AppendMenuW(windowMenu, MF_STRING | (app.settings.alwaysOnTop ? MF_CHECKED : 0), CMD_TOGGLE_TOPMOST, tr(L"\u7A97\u53E3\u7F6E\u9876\u663E\u793A", L"Always On Top"));
-    AppendMenuW(windowMenu, MF_STRING | (app.settings.autoHideFullscreen ? MF_CHECKED : 0), CMD_TOGGLE_AUTOHIDE_FS,
-        tr(L"\u5168\u5C4F\u5E94\u7528\u65F6\u81EA\u52A8\u9690\u85CF\uFF08PPT / \u89C6\u9891 / \u6E38\u620F\uFF09",
-           L"Auto-Hide in Fullscreen Apps (PPT / Video / Games)"));
-    AppendMenuW(systemMenu, MF_STRING | (isAutoStartEnabled() ? MF_CHECKED : 0), CMD_TOGGLE_AUTOSTART, tr(L"\u5F00\u673A\u81EA\u52A8\u542F\u52A8", L"Launch at Startup"));
-    if (app.isElevated) {
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
-            tr(L"\u2713 \u5DF2\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u8FD0\u884C\uFF08WPS / \u7BA1\u7406\u5458\u6743\u9650\u6E38\u620F\u7684\u952E\u76D8\u90FD\u80FD\u76D1\u542C\uFF09",
-               L"\u2713 Running as Administrator (captures keys in WPS / admin games)"));
-    } else {
-        AppendMenuW(systemMenu, MF_STRING, CMD_RELAUNCH_ADMIN,
-            tr(L"\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u91CD\u65B0\u542F\u52A8\uFF08WPS / \u6E38\u620F\u91CC\u952E\u76D8\u6CA1\u53CD\u5E94\u65F6\u70B9\u8FD9\u91CC\uFF09",
-               L"Restart as Administrator (fix no keyboard input in WPS / games)"));
-    }
-    AppendMenuW(systemMenu, MF_STRING | (app.settings.runAsAdmin ? MF_CHECKED : 0), CMD_TOGGLE_RUN_AS_ADMIN, tr(L"\u6BCF\u6B21\u542F\u52A8\u90FD\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u8FD0\u884C", L"Always Run as Administrator"));
-
-    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyBadges ? MF_CHECKED : 0), CMD_TOGGLE_BADGES, tr(L"\u663E\u793A\u6309\u952E\u6C14\u6CE1 ([S] [W] [\u21E7])", L"Show Key & Click Badges"));
-    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyLegends ? MF_CHECKED : 0), CMD_TOGGLE_KEY_LEGENDS, tr(L"\u663E\u793A\u952E\u76D8\u5B57\u7B26", L"Show Keycap Legends"));
-    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.keyboardMarquee ? MF_CHECKED : 0), CMD_TOGGLE_MARQUEE, tr(L"\u952E\u76D8\u8DD1\u9A6C\u706F\u6D41\u5149", L"Keyboard RGB Marquee"));
-
-    // OBS Live Capture Mode submenu
-    HMENU obsMenu = CreatePopupMenu();
-    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 0 ? MF_CHECKED : 0), CMD_OBS_OFF, tr(L"\u5173\u95ED\uFF08\u6B63\u5E38\u684C\u9762\u60AC\u6D6E\uFF09", L"Off (Normal Overlay)"));
-    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 1 ? MF_CHECKED : 0), CMD_OBS_TRANSPARENT, tr(L"OBS \u900F\u660E\u7A97\u53E3\u6355\u83B7", L"OBS Transparent Window Capture"));
-    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 2 ? MF_CHECKED : 0), CMD_OBS_GREENSCREEN, tr(L"OBS \u7EFF\u5E55\u6A21\u5F0F (#00FF00)", L"OBS Green Screen (#00FF00)"));
-    AppendMenuW(obsMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsHideDesktop ? MF_CHECKED : 0) | (app.settings.obsCaptureMode == 0 ? MF_GRAYED : 0),
-        CMD_TOGGLE_OBS_HIDE, tr(L"\u540E\u53F0\u6355\u83B7\uFF08\u9690\u85CF\u684C\u9762\u5C0F\u732B\uFF0COBS\u4ECD\u6B63\u5E38\u6355\u83B7\uFF09", L"Background Capture (Hide on Desktop)"));
-    AppendMenuW(systemMenu, MF_POPUP, (UINT_PTR)obsMenu, tr(L"\U0001F4FA \u76F4\u64AD\u6355\u83B7\u6A21\u5F0F (OBS)", L"\U0001F4FA OBS Live Capture Mode"));
-
-    // Interactive resize & flip mode (replaces static scale submenu; also triggered by double-clicking cat)
-    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.isEditMode ? MF_CHECKED : 0), CMD_TOGGLE_EDIT,
-        app.settings.isEditMode
-            ? tr(L"\u2713 \u5B8C\u6210\u8C03\u6574\u5927\u5C0F\u4E0E\u65B9\u5411", L"\u2713 Finish Resize & Flip")
-            : tr(L"\u8C03\u6574\u5927\u5C0F\u4E0E\u65B9\u5411 (\u53CC\u51FB\u5C0F\u732B)", L"Resize & Flip (Double-Click Cat)"));
-
-    // Cat Coat Skin submenu
-    // 内置毛色勾选：仅在没有自定义皮肤时按 coatTheme 判定
-    auto coatCheck = [&](CatCoatTheme t) -> UINT {
-        return (app.settings.customSkin.empty() && app.settings.coatTheme == t) ? MF_CHECKED : 0;
-    };
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::ClassicBlack), CMD_COAT_BLACK, tr(L"\u7ECF\u5178\u5C0F\u9ED1\u732B (\u539F\u7248)", L"Classic Black Cat"));
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Siamese), CMD_COAT_SIAMESE, tr(L"\u6316\u7164\u66B9\u7F57\u732B", L"Siamese Cat"));
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Shorthair), CMD_COAT_SHORTHAIR, tr(L"\u7F8E\u77ED\uFF08\u94F6\u864E\u6591\u52A0\u767D\uFF09", L"Silver Tabby Shorthair"));
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::OrangeWhite), CMD_COAT_ORANGE_WHITE, tr(L"\u6A58\u767D\u732B", L"Orange & White Cat"));
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Dazed), CMD_COAT_DAZED, tr(L"\u5446\u732B", L"Dazed Cat"));
-    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Tabby), CMD_COAT_TABBY, tr(L"\u72F8\u82B1\u732B", L"Tabby Cat"));
-    size_t listed = std::min<size_t>(app.skins.skins.size(), CMD_SKIN_RANGE);
-    if (listed) AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
-    for (size_t i = 0; i < listed; ++i) {
-        const SkinSpec& s = app.skins.skins[i];
-        AppendMenuW(coatMenu, MF_STRING | (app.settings.customSkin == s.id ? MF_CHECKED : 0), CMD_SKIN_SELECT_BASE + (UINT)i, utf8ToWide(s.name).c_str());
-    }
-    AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(coatMenu, MF_STRING, CMD_IMPORT_SKIN, tr(L"\u5BFC\u5165\u76AE\u80A4\u2026", L"Import Skin..."));
-    AppendMenuW(coatMenu, MF_STRING, CMD_OPEN_WORKSHOP, tr(L"\u6253\u5F00\u76AE\u80A4\u5DE5\u574A\uFF08\u5236\u4F5C\u76AE\u80A4\uFF09\u2026", L"Open Skin Workshop..."));
-    AppendMenuW(coatMenu, MF_STRING, CMD_OPEN_SKINS_DIR, tr(L"\u6253\u5F00\u76AE\u80A4\u6587\u4EF6\u5939\uFF08\u5907\u4EFD\uFF09", L"Open Skins Folder (Backup)"));
-    if (listed) {
-        HMENU deleteMenu = CreatePopupMenu();
-        for (size_t i = 0; i < listed; ++i) AppendMenuW(deleteMenu, MF_STRING, CMD_SKIN_DELETE_BASE + (UINT)i, utf8ToWide(app.skins.skins[i].name).c_str());
-        AppendMenuW(coatMenu, MF_POPUP, (UINT_PTR)deleteMenu, tr(L"\u5220\u9664\u76AE\u80A4", L"Delete Skin"));
-    }
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4", L"Cat Skin"));
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)appearanceMenu, tr(L"\U0001F3A8 \u5916\u89C2", L"\U0001F3A8 Appearance"));
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)windowMenu, tr(L"\U0001F5A5 \u7A97\u53E3", L"\U0001F5A5 Window"));
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)systemMenu, tr(L"\u2699 \u7CFB\u7EDF", L"\u2699 System"));
-
-    // Keyboard Theme submenu
-    HMENU kbMenu = CreatePopupMenu();
-    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::ClassicMilk ? MF_CHECKED : 0), CMD_KB_MILK, tr(L"\u7ECF\u5178\u5976\u767D\u6696\u9EC4 (\u539F\u7248)", L"Classic Milk White"));
-    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::MidnightHacker ? MF_CHECKED : 0), CMD_KB_HACKER, tr(L"\u6697\u591C\u6781\u5BA2\u9ED1", L"Midnight Hacker Black"));
-    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::RetroCream ? MF_CHECKED : 0), CMD_KB_RETRO, tr(L"\u590D\u53E4\u5976\u6CB9\u7070", L"Retro Cream Gray"));
-    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)kbMenu, tr(L"\u952E\u76D8\u914D\u8272", L"Keyboard Theme"));
-
-    // Eye Color submenu
-    HMENU eyeMenu = CreatePopupMenu();
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::NeonChartreuse ? MF_CHECKED : 0), CMD_EYE_LIME, tr(L"\u7ECF\u5178\u8367\u5149\u9EC4\u7EFF (\u539F\u7248)", L"Neon Chartreuse"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::SiameseBlue ? MF_CHECKED : 0), CMD_EYE_BLUE, tr(L"\u66B9\u7F57\u5B9D\u77F3\u84DD", L"Siamese Ice Blue"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::WarmAmber ? MF_CHECKED : 0), CMD_EYE_AMBER, tr(L"\u7425\u73C0\u91D1\u77B3", L"Warm Amber"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::IceCyan ? MF_CHECKED : 0), CMD_EYE_CYAN, tr(L"\u51B0\u6676\u6D45\u84DD", L"Ice Cyan"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::SoftAmber ? MF_CHECKED : 0), CMD_EYE_SOFT_AMBER, tr(L"\u67D4\u548C\u7425\u73C0", L"Soft Amber"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::ReferenceHazel ? MF_CHECKED : 0), CMD_EYE_REFERENCE_HAZEL, tr(L"\u6DE1\u91D1\u9752\u7EFF", L"Golden Hazel"));
-    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::OliveGold ? MF_CHECKED : 0), CMD_EYE_OLIVE_GOLD, tr(L"\u6A44\u6984\u91D1", L"Olive Gold"));
-    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)eyeMenu, tr(L"\u77B3\u8272\u5207\u6362", L"Eye Color"));
-
-    // Drawing Tablet & Stylus submenu
-    HMENU tabMenu = CreatePopupMenu();
-    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 0 ? MF_CHECKED : 0), CMD_TABLET_AUTO, tr(L"\u81EA\u52A8\u68C0\u6D4B\uFF08\u8FDE\u63A5\u6570\u4F4D\u677F\u65F6\u81EA\u52A8\u5207\u6362\uFF09", L"Auto-Detect (Switch When Connected)"));
-    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 1 ? MF_CHECKED : 0), CMD_TABLET_ON,   tr(L"\u59CB\u7EC8\u663E\u793A\u6570\u4F4D\u677F\u4E0E\u89E6\u63A7\u7B14", L"Always Show Tablet & Stylus"));
-    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 2 ? MF_CHECKED : 0), CMD_TABLET_OFF,  tr(L"\u59CB\u7EC8\u663E\u793A\u9F20\u6807", L"Always Show Mouse"));
-    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)tabMenu, tr(L"\U0001F3A8 \u6570\u4F4D\u677F\u4E0E\u89E6\u63A7\u7B14", L"\U0001F3A8 Drawing Tablet & Stylus"));
-
-    // Language submenu
-    HMENU langMenu = CreatePopupMenu();
-    AppendMenuW(langMenu, MF_STRING | (!app.settings.isEnglish ? MF_CHECKED : 0), CMD_LANG_ZH, L"\u7B80\u4F53\u4E2D\u6587");
-    AppendMenuW(langMenu, MF_STRING | (app.settings.isEnglish ? MF_CHECKED : 0), CMD_LANG_EN, L"English");
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)langMenu, L"\U0001F310 \u8BED\u8A00 / Language");
-
-    if (!app.availableUpdateVersion.empty()) {
-        std::wstring upTxt = app.isUpdating
-            ? (std::wstring(tr(L"\u23F3 \u6B63\u5728\u4E0B\u8F7D\u66F4\u65B0 ", L"\u23F3 Downloading update ")) + app.availableUpdateVersion + L"...")
-            : (std::wstring(tr(L"\U0001F195 \u53D1\u73B0\u65B0\u7248\u672C ", L"\U0001F195 Update Available ")) + app.availableUpdateVersion);
-        AppendMenuW(systemMenu, MF_STRING | (app.isUpdating ? MF_GRAYED : 0), CMD_OPEN_UPDATE, upTxt.c_str());
-    } else {
-        std::wstring chkTxt = std::wstring(tr(L"\u68C0\u67E5\u66F4\u65B0 (\u5F53\u524D v", L"Check for Updates (v")) + APP_VERSION + L")";
-        AppendMenuW(systemMenu, MF_STRING, CMD_CHECK_UPDATE, chkTxt.c_str());
-    }
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, CMD_QUIT, tr(L"\u9000\u51FA Tama", L"Quit Tama"));
-
-    HWND menuOwner = app.menuOwnerHwnd ? app.menuOwnerHwnd : app.hwnd;
-    SetForegroundWindow(menuOwner);
-    UINT cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPt.x, screenPt.y, 0, menuOwner, nullptr);
-    PostMessageW(menuOwner, WM_NULL, 0, 0);
-    DestroyMenu(menu);
-
     switch (cmd) {
+        case CMD_OPEN_SETTINGS:
+            showSettingsWindow(app);
+            break;
         case CMD_TOGGLE_VISIBLE:
             app.isVisible = !app.isVisible;
             app.hiddenByFullscreen = false;
@@ -1823,6 +1686,162 @@ void showContextMenu(AppState& app, POINT screenPt) {
             }
             break;
     }
+}
+
+
+void showContextMenu(AppState& app, POINT screenPt) {
+    HMENU menu = CreatePopupMenu();
+    HMENU appearanceMenu = CreatePopupMenu();   // 外观：键帽/键位图例/跑马灯/键盘配色/瞳色/数位板
+    HMENU windowMenu = CreatePopupMenu();       // 窗口：显示隐藏 / 穿透 / 置顶 / 全屏自动隐藏
+    HMENU systemMenu = CreatePopupMenu();       // 系统：自启 / 管理员 / OBS / 更新
+    HMENU coatMenu = CreatePopupMenu();        // 皮肤：内置毛色 + 导入皮肤 + 工坊/文件夹
+    bool en = app.settings.isEnglish;
+    auto tr = [&](const wchar_t* zh, const wchar_t* eng) -> const wchar_t* { return en ? eng : zh; };
+
+    // Status & live stats header
+    std::wstring statusStr = app.input.isRawInputRegistered
+        ? tr(L"\u25CF \u786C\u4EF6\u7EA7\u5168\u72B6\u6001\u76D1\u542C\u4E2D (Raw Input \u6E38\u620F/\u6253\u5B57)",
+             L"\u25CF Hardware Input Active (Raw Input)")
+        : tr(L"\u26A0 Raw Input \u672A\u542F\u52A8", L"\u26A0 Raw Input Inactive");
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, statusStr.c_str());
+    if (!app.isElevated && app.lastBlockedForegroundTime > 0.0 && nowSeconds() - app.lastBlockedForegroundTime < 600.0) {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
+            tr(L"\u26A0 \u521A\u624D\u7684\u5E94\u7528\uFF08\u5982 WPS / \u6E38\u620F\uFF09\u4EE5\u7BA1\u7406\u5458\u6743\u9650\u8FD0\u884C\uFF0C\u952E\u76D8\u88AB Windows \u62E6\u622A\u4E86",
+               L"\u26A0 Foreground admin app (e.g. WPS / game) blocked keyboard input"));
+    }
+
+    std::wstring stats = en
+        ? (L"Today " + std::to_wstring(app.input.totalKeystrokesToday)
+            + L"  \u00B7  KPM " + std::to_wstring(app.input.currentKPM())
+            + L"  \u00B7  Pets " + std::to_wstring(app.physics.totalPetSessions))
+        : (L"\u4ECA\u65E5\u51FB\u952E " + std::to_wstring(app.input.totalKeystrokesToday)
+            + L"  \u00B7  KPM " + std::to_wstring(app.input.currentKPM())
+            + L"  \u00B7  \u6478\u732B " + std::to_wstring(app.physics.totalPetSessions) + L" \u6B21");
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, stats.c_str());
+
+    AppendMenuW(windowMenu, MF_STRING, CMD_TOGGLE_VISIBLE, app.isVisible ? tr(L"\u9690\u85CF\u684C\u5BA0", L"Hide Pet") : tr(L"\u663E\u793A\u684C\u5BA0", L"Show Pet"));
+    AppendMenuW(windowMenu, MF_STRING | (app.settings.fullClickThrough ? MF_CHECKED : 0), CMD_TOGGLE_CLICKTHROUGH,
+        tr(L"\u5B8C\u5168\u9F20\u6807\u7A7F\u900F (Ctrl+Alt+Shift+P / \u6309\u4F4FAlt\u53EF\u53F3\u952E)",
+           L"Full Click-Through (Ctrl+Alt+Shift+P / Hold Alt)"));
+    AppendMenuW(windowMenu, MF_STRING | (app.settings.alwaysOnTop ? MF_CHECKED : 0), CMD_TOGGLE_TOPMOST, tr(L"\u7A97\u53E3\u7F6E\u9876\u663E\u793A", L"Always On Top"));
+    AppendMenuW(windowMenu, MF_STRING | (app.settings.autoHideFullscreen ? MF_CHECKED : 0), CMD_TOGGLE_AUTOHIDE_FS,
+        tr(L"\u5168\u5C4F\u5E94\u7528\u65F6\u81EA\u52A8\u9690\u85CF\uFF08PPT / \u89C6\u9891 / \u6E38\u620F\uFF09",
+           L"Auto-Hide in Fullscreen Apps (PPT / Video / Games)"));
+    AppendMenuW(systemMenu, MF_STRING | (isAutoStartEnabled() ? MF_CHECKED : 0), CMD_TOGGLE_AUTOSTART, tr(L"\u5F00\u673A\u81EA\u52A8\u542F\u52A8", L"Launch at Startup"));
+    if (app.isElevated) {
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0,
+            tr(L"\u2713 \u5DF2\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u8FD0\u884C\uFF08WPS / \u7BA1\u7406\u5458\u6743\u9650\u6E38\u620F\u7684\u952E\u76D8\u90FD\u80FD\u76D1\u542C\uFF09",
+               L"\u2713 Running as Administrator (captures keys in WPS / admin games)"));
+    } else {
+        AppendMenuW(systemMenu, MF_STRING, CMD_RELAUNCH_ADMIN,
+            tr(L"\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u91CD\u65B0\u542F\u52A8\uFF08WPS / \u6E38\u620F\u91CC\u952E\u76D8\u6CA1\u53CD\u5E94\u65F6\u70B9\u8FD9\u91CC\uFF09",
+               L"Restart as Administrator (fix no keyboard input in WPS / games)"));
+    }
+    AppendMenuW(systemMenu, MF_STRING | (app.settings.runAsAdmin ? MF_CHECKED : 0), CMD_TOGGLE_RUN_AS_ADMIN, tr(L"\u6BCF\u6B21\u542F\u52A8\u90FD\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u8FD0\u884C", L"Always Run as Administrator"));
+
+    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyBadges ? MF_CHECKED : 0), CMD_TOGGLE_BADGES, tr(L"\u663E\u793A\u6309\u952E\u6C14\u6CE1 ([S] [W] [\u21E7])", L"Show Key & Click Badges"));
+    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyLegends ? MF_CHECKED : 0), CMD_TOGGLE_KEY_LEGENDS, tr(L"\u663E\u793A\u952E\u76D8\u5B57\u7B26", L"Show Keycap Legends"));
+    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.keyboardMarquee ? MF_CHECKED : 0), CMD_TOGGLE_MARQUEE, tr(L"\u952E\u76D8\u8DD1\u9A6C\u706F\u6D41\u5149", L"Keyboard RGB Marquee"));
+
+    // OBS Live Capture Mode submenu
+    HMENU obsMenu = CreatePopupMenu();
+    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 0 ? MF_CHECKED : 0), CMD_OBS_OFF, tr(L"\u5173\u95ED\uFF08\u6B63\u5E38\u684C\u9762\u60AC\u6D6E\uFF09", L"Off (Normal Overlay)"));
+    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 1 ? MF_CHECKED : 0), CMD_OBS_TRANSPARENT, tr(L"OBS \u900F\u660E\u7A97\u53E3\u6355\u83B7", L"OBS Transparent Window Capture"));
+    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsCaptureMode == 2 ? MF_CHECKED : 0), CMD_OBS_GREENSCREEN, tr(L"OBS \u7EFF\u5E55\u6A21\u5F0F (#00FF00)", L"OBS Green Screen (#00FF00)"));
+    AppendMenuW(obsMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(obsMenu, MF_STRING | (app.settings.obsHideDesktop ? MF_CHECKED : 0) | (app.settings.obsCaptureMode == 0 ? MF_GRAYED : 0),
+        CMD_TOGGLE_OBS_HIDE, tr(L"\u540E\u53F0\u6355\u83B7\uFF08\u9690\u85CF\u684C\u9762\u5C0F\u732B\uFF0COBS\u4ECD\u6B63\u5E38\u6355\u83B7\uFF09", L"Background Capture (Hide on Desktop)"));
+    AppendMenuW(systemMenu, MF_POPUP, (UINT_PTR)obsMenu, tr(L"\U0001F4FA \u76F4\u64AD\u6355\u83B7\u6A21\u5F0F (OBS)", L"\U0001F4FA OBS Live Capture Mode"));
+
+    // Interactive resize & flip mode (replaces static scale submenu; also triggered by double-clicking cat)
+    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.isEditMode ? MF_CHECKED : 0), CMD_TOGGLE_EDIT,
+        app.settings.isEditMode
+            ? tr(L"\u2713 \u5B8C\u6210\u8C03\u6574\u5927\u5C0F\u4E0E\u65B9\u5411", L"\u2713 Finish Resize & Flip")
+            : tr(L"\u8C03\u6574\u5927\u5C0F\u4E0E\u65B9\u5411 (\u53CC\u51FB\u5C0F\u732B)", L"Resize & Flip (Double-Click Cat)"));
+
+    // Cat Coat Skin submenu
+    // 内置毛色勾选：仅在没有自定义皮肤时按 coatTheme 判定
+    auto coatCheck = [&](CatCoatTheme t) -> UINT {
+        return (app.settings.customSkin.empty() && app.settings.coatTheme == t) ? MF_CHECKED : 0;
+    };
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::ClassicBlack), CMD_COAT_BLACK, tr(L"\u7ECF\u5178\u5C0F\u9ED1\u732B (\u539F\u7248)", L"Classic Black Cat"));
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Siamese), CMD_COAT_SIAMESE, tr(L"\u6316\u7164\u66B9\u7F57\u732B", L"Siamese Cat"));
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Shorthair), CMD_COAT_SHORTHAIR, tr(L"\u7F8E\u77ED\uFF08\u94F6\u864E\u6591\u52A0\u767D\uFF09", L"Silver Tabby Shorthair"));
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::OrangeWhite), CMD_COAT_ORANGE_WHITE, tr(L"\u6A58\u767D\u732B", L"Orange & White Cat"));
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Dazed), CMD_COAT_DAZED, tr(L"\u5446\u732B", L"Dazed Cat"));
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Tabby), CMD_COAT_TABBY, tr(L"\u72F8\u82B1\u732B", L"Tabby Cat"));
+    size_t listed = std::min<size_t>(app.skins.skins.size(), CMD_SKIN_RANGE);
+    if (listed) AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
+    for (size_t i = 0; i < listed; ++i) {
+        const SkinSpec& s = app.skins.skins[i];
+        AppendMenuW(coatMenu, MF_STRING | (app.settings.customSkin == s.id ? MF_CHECKED : 0), CMD_SKIN_SELECT_BASE + (UINT)i, utf8ToWide(s.name).c_str());
+    }
+    AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(coatMenu, MF_STRING, CMD_IMPORT_SKIN, tr(L"\u5BFC\u5165\u76AE\u80A4\u2026", L"Import Skin..."));
+    AppendMenuW(coatMenu, MF_STRING, CMD_OPEN_WORKSHOP, tr(L"\u6253\u5F00\u76AE\u80A4\u5DE5\u574A\uFF08\u5236\u4F5C\u76AE\u80A4\uFF09\u2026", L"Open Skin Workshop..."));
+    AppendMenuW(coatMenu, MF_STRING, CMD_OPEN_SKINS_DIR, tr(L"\u6253\u5F00\u76AE\u80A4\u6587\u4EF6\u5939\uFF08\u5907\u4EFD\uFF09", L"Open Skins Folder (Backup)"));
+    if (listed) {
+        HMENU deleteMenu = CreatePopupMenu();
+        for (size_t i = 0; i < listed; ++i) AppendMenuW(deleteMenu, MF_STRING, CMD_SKIN_DELETE_BASE + (UINT)i, utf8ToWide(app.skins.skins[i].name).c_str());
+        AppendMenuW(coatMenu, MF_POPUP, (UINT_PTR)deleteMenu, tr(L"\u5220\u9664\u76AE\u80A4", L"Delete Skin"));
+    }
+    AppendMenuW(menu, MF_STRING, CMD_OPEN_SETTINGS, tr(L"\u2699\uFE0F \u8BBE\u7F6E\u2026", L"\u2699\uFE0F Settings..."));
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4", L"Cat Skin"));
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)appearanceMenu, tr(L"\U0001F3A8 \u5916\u89C2", L"\U0001F3A8 Appearance"));
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)windowMenu, tr(L"\U0001F5A5 \u7A97\u53E3", L"\U0001F5A5 Window"));
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)systemMenu, tr(L"\u2699 \u7CFB\u7EDF", L"\u2699 System"));
+
+    // Keyboard Theme submenu
+    HMENU kbMenu = CreatePopupMenu();
+    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::ClassicMilk ? MF_CHECKED : 0), CMD_KB_MILK, tr(L"\u7ECF\u5178\u5976\u767D\u6696\u9EC4 (\u539F\u7248)", L"Classic Milk White"));
+    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::MidnightHacker ? MF_CHECKED : 0), CMD_KB_HACKER, tr(L"\u6697\u591C\u6781\u5BA2\u9ED1", L"Midnight Hacker Black"));
+    AppendMenuW(kbMenu, MF_STRING | (app.settings.keyboardTheme == KeyboardTheme::RetroCream ? MF_CHECKED : 0), CMD_KB_RETRO, tr(L"\u590D\u53E4\u5976\u6CB9\u7070", L"Retro Cream Gray"));
+    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)kbMenu, tr(L"\u952E\u76D8\u914D\u8272", L"Keyboard Theme"));
+
+    // Eye Color submenu
+    HMENU eyeMenu = CreatePopupMenu();
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::NeonChartreuse ? MF_CHECKED : 0), CMD_EYE_LIME, tr(L"\u7ECF\u5178\u8367\u5149\u9EC4\u7EFF (\u539F\u7248)", L"Neon Chartreuse"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::SiameseBlue ? MF_CHECKED : 0), CMD_EYE_BLUE, tr(L"\u66B9\u7F57\u5B9D\u77F3\u84DD", L"Siamese Ice Blue"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::WarmAmber ? MF_CHECKED : 0), CMD_EYE_AMBER, tr(L"\u7425\u73C0\u91D1\u77B3", L"Warm Amber"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::IceCyan ? MF_CHECKED : 0), CMD_EYE_CYAN, tr(L"\u51B0\u6676\u6D45\u84DD", L"Ice Cyan"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::SoftAmber ? MF_CHECKED : 0), CMD_EYE_SOFT_AMBER, tr(L"\u67D4\u548C\u7425\u73C0", L"Soft Amber"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::ReferenceHazel ? MF_CHECKED : 0), CMD_EYE_REFERENCE_HAZEL, tr(L"\u6DE1\u91D1\u9752\u7EFF", L"Golden Hazel"));
+    AppendMenuW(eyeMenu, MF_STRING | (app.settings.eyeTheme == EyeColorTheme::OliveGold ? MF_CHECKED : 0), CMD_EYE_OLIVE_GOLD, tr(L"\u6A44\u6984\u91D1", L"Olive Gold"));
+    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)eyeMenu, tr(L"\u77B3\u8272\u5207\u6362", L"Eye Color"));
+
+    // Drawing Tablet & Stylus submenu
+    HMENU tabMenu = CreatePopupMenu();
+    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 0 ? MF_CHECKED : 0), CMD_TABLET_AUTO, tr(L"\u81EA\u52A8\u68C0\u6D4B\uFF08\u8FDE\u63A5\u6570\u4F4D\u677F\u65F6\u81EA\u52A8\u5207\u6362\uFF09", L"Auto-Detect (Switch When Connected)"));
+    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 1 ? MF_CHECKED : 0), CMD_TABLET_ON,   tr(L"\u59CB\u7EC8\u663E\u793A\u6570\u4F4D\u677F\u4E0E\u89E6\u63A7\u7B14", L"Always Show Tablet & Stylus"));
+    AppendMenuW(tabMenu, MF_STRING | (app.settings.tabletMode == 2 ? MF_CHECKED : 0), CMD_TABLET_OFF,  tr(L"\u59CB\u7EC8\u663E\u793A\u9F20\u6807", L"Always Show Mouse"));
+    AppendMenuW(appearanceMenu, MF_POPUP, (UINT_PTR)tabMenu, tr(L"\U0001F3A8 \u6570\u4F4D\u677F\u4E0E\u89E6\u63A7\u7B14", L"\U0001F3A8 Drawing Tablet & Stylus"));
+
+    // Language submenu
+    HMENU langMenu = CreatePopupMenu();
+    AppendMenuW(langMenu, MF_STRING | (!app.settings.isEnglish ? MF_CHECKED : 0), CMD_LANG_ZH, L"\u7B80\u4F53\u4E2D\u6587");
+    AppendMenuW(langMenu, MF_STRING | (app.settings.isEnglish ? MF_CHECKED : 0), CMD_LANG_EN, L"English");
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)langMenu, L"\U0001F310 \u8BED\u8A00 / Language");
+
+    if (!app.availableUpdateVersion.empty()) {
+        std::wstring upTxt = app.isUpdating
+            ? (std::wstring(tr(L"\u23F3 \u6B63\u5728\u4E0B\u8F7D\u66F4\u65B0 ", L"\u23F3 Downloading update ")) + app.availableUpdateVersion + L"...")
+            : (std::wstring(tr(L"\U0001F195 \u53D1\u73B0\u65B0\u7248\u672C ", L"\U0001F195 Update Available ")) + app.availableUpdateVersion);
+        AppendMenuW(systemMenu, MF_STRING | (app.isUpdating ? MF_GRAYED : 0), CMD_OPEN_UPDATE, upTxt.c_str());
+    } else {
+        std::wstring chkTxt = std::wstring(tr(L"\u68C0\u67E5\u66F4\u65B0 (\u5F53\u524D v", L"Check for Updates (v")) + APP_VERSION + L")";
+        AppendMenuW(systemMenu, MF_STRING, CMD_CHECK_UPDATE, chkTxt.c_str());
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, CMD_QUIT, tr(L"\u9000\u51FA Tama", L"Quit Tama"));
+
+    HWND menuOwner = app.menuOwnerHwnd ? app.menuOwnerHwnd : app.hwnd;
+    SetForegroundWindow(menuOwner);
+    UINT cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenPt.x, screenPt.y, 0, menuOwner, nullptr);
+    PostMessageW(menuOwner, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+
+    applyAppCommand(app, cmd);
     refreshDressingRoom(app);   // keep the 换装间 preview in sync with menu skin switches
 }
 
@@ -2406,6 +2425,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
 
     const int myVersion = versionToNumber(APP_VERSION);
     const bool forceTakeover = commandLineHasFlag(L"--takeover");   // admin relaunch
+    const bool openSettingsAtStart = commandLineHasFlag(L"--settings"); // 启动即打开设置窗口（用于截图/调试）
     const bool noElevate = commandLineHasFlag(L"--no-elevate");
     const wchar_t* kMutexName = L"Local\\Tama_SingleInstance";
 
@@ -2465,6 +2485,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     if (isAutoStartEnabled()) {
         setAutoStartEnabled(true);
     }
+
+    if (openSettingsAtStart) showSettingsWindow(app);
 
     app.input.onKeyDown = [&](PhysicalKey k) {
         const auto& held = app.input.activeKeys;

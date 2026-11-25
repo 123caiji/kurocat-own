@@ -4,8 +4,8 @@
 > 单文件原生实现（1.3 MB / 零运行时依赖 / 完全离线）。
 
 <p align="center">
-  <img src="docs/media/demo-idle.gif" width="360" alt="Tama 转头眨眼" />
-  <img src="docs/media/demo-keycaps.gif" width="360" alt="Tama 键帽气泡" />
+  <img src="docs/media/demo-keycaps.gif" width="360" alt="键帽气泡：键名 / 组合键 / 鼠标分色" />
+  <img src="docs/media/demo-robin.gif" width="360" alt="知更鸟 · 夜航皮肤" />
 </p>
 
 <p align="center">
@@ -65,6 +65,16 @@ Tama 每 150ms 读一次本地状态文件，不联网、不需要插件也能�
 
 写这个文件的一方可以是任何东西：DSH 插件、脚本、CI 任务。协议与示例见 [docs/DSH-STATE-BRIDGE.md](docs/DSH-STATE-BRIDGE.md)。
 
+## ⚙️ 设置窗口
+
+右键小猫 → **设置…**（或启动加 `--settings`）：原生 Win32 窗口，566×549，随 DPI 缩放。
+
+- **外观**：猫咪皮肤（内置 6 款 + 已导入皮肤）、瞳色 7 种、键盘配色 3 套、缩放 65–150%、换装间
+- **行为与反馈**：显示键帽气泡 / 键位图例 / 键盘跑马灯 / 全屏自动隐藏 / 窗口置顶 / 鼠标穿透
+- **系统**：开机自启、语言（简体中文 / English）、打开皮肤文件夹、检查更新
+
+控件事件与右键菜单共用同一套 `applyAppCommand(app, CMD_*)`，两处行为永远一致。细节见 [docs/SETTINGS.md](docs/SETTINGS.md)。
+
 ## 🔄 更新检查（安全优先）
 
 右键 → 系统 → 检查更新：只查询版本号并提示，**不会下载或执行任何远端文件**。
@@ -101,7 +111,9 @@ tama/
 ## 🗺️ 文档
 
 - [docs/CHANGELOG.md](docs/CHANGELOG.md) —— 变更与回滚 tag
-- [docs/PLAN-20261125.md](docs/PLAN-20261125.md) —— 功能与视觉规划（键帽气泡为主线）
+- [docs/PLAN-20261125.md](docs/PLAN-20261125.md)
+- [docs/SETTINGS.md](docs/SETTINGS.md) —— **设置窗口（原生 Win32 UI）说明与实测**
+- [docs/UPSTREAM-DIFF.md](docs/UPSTREAM-DIFF.md) —— 上游 v1.4.0→v1.4.3 差异与移植评估 —— 功能与视觉规划（键帽气泡为主线）
 - [docs/DSH-STATE-BRIDGE.md](docs/DSH-STATE-BRIDGE.md) —— 状态联动协议
 - [docs/REBRAND+LICENSE.md](docs/REBRAND+LICENSE.md) —— 品牌与合规说明
 - [docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md) —— DSH 桌宠生态功能全景调研
