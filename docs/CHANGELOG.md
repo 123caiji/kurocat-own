@@ -2,6 +2,22 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [F1-键帽气泡] · 2026-11-25
+
+**新增 / 重做**
+
+- 键帽气泡升级为自有设计：更大圆角（7）、1.2px 描边、双层软投影、顶部高光、出生 0.1s 的「按下位移」弹起
+- **组合键合并**：按住 Ctrl/Shift/Alt/Win 时，普通键弹出一颗宽键帽（如 `Ctrl+Shift+A`），修饰键本身不再刷屏
+- **鼠标三键分色**：左键=蓝、右键=红、中键=琥珀；滚轮=青绿并显示方向（读既有 Raw Input 字段）
+- 新增两款原创皮肤：`robin.kurocat`（知更夜蓝猫）、`stage.kurocat`（舞台夜色猫）
+
+**文档 / 素材**
+
+- `docs/media/demo-keycaps.gif`（键帽气泡录制）
+- `docs/REBRAND+LICENSE.md`（品牌自有化清单 + 合规；含 gitee virtual-maiden 核实结论）
+
+**编译**：0 error；单文件 1,293 KB
+
 ## [P0-v1-removed] · 2026-11-25
 
 **移除（设计否决）**

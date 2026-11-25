@@ -1,0 +1,83 @@
+{
+ "formatVersion": 1,
+ "name": "知更夜蓝猫",
+ "author": "kurocat-own",
+ "palette": {
+  "body": "#2E3B4E",
+  "bodyShade": "#26313F",
+  "belly": "#C9722F",
+  "legs": "#3A4A5F",
+  "paws": "#EDEFF2",
+  "earOuter": "#2E3B4E",
+  "earInner": "#C08A72",
+  "tail": "#26313F",
+  "tailTip": "#C9722F",
+  "iris": "#F0B03C",
+  "nose": "#E0A79E",
+  "mouth": "#A87F7C",
+  "outline": "#161E2888",
+  "crease": "#B9C6D62E",
+  "whiskers": "#DCE6F2A0",
+  "stripes": "#3F4F66"
+ },
+ "shape": {
+  "build": "standard",
+  "cheekFullness": 1.04
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": [
+  {
+   "space": "head",
+   "kind": "polygon",
+   "color": "#C9722F",
+   "alpha": 0.9,
+   "points": [
+    [
+     0,
+     18
+    ],
+    [
+     -26,
+     6
+    ],
+    [
+     -18,
+     30
+    ],
+    [
+     18,
+     30
+    ],
+    [
+     26,
+     6
+    ]
+   ]
+  },
+  {
+   "space": "body",
+   "kind": "polygon",
+   "color": "#C9722F",
+   "alpha": 0.85,
+   "points": [
+    [
+     -30,
+     -70
+    ],
+    [
+     30,
+     -70
+    ],
+    [
+     22,
+     -20
+    ],
+    [
+     -22,
+     -20
+    ]
+   ]
+  }
+ ]
+}

@@ -1705,6 +1705,24 @@ void tickAndRender(AppState& app) {
     int w = std::max(1, (int)(wr.right - wr.left));
     int h = std::max(1, (int)(wr.bottom - wr.top));
 
+#ifdef KC_DEMO_BADGES
+    // 仅录制演示用：每 0.55s 模拟一次按键/点击，让键帽持续出现
+    {
+        static double nextDemo = 0.0;
+        static int step = 0;
+        double t = nowSeconds();
+        if (t > nextDemo) {
+            nextDemo = t + 0.55;
+            static const PhysicalKey seq[] = { PhysicalKey::A, PhysicalKey::B, PhysicalKey::Enter, PhysicalKey::Space };
+            bool shift = (step % 4) == 0;
+            app.physics.setModifierState(false, shift, false, false);
+            app.physics.triggerKeyDown(seq[step % 4], app.settings);
+            if (step % 5 == 4) app.physics.triggerMouseClick(0, true, app.settings);
+            if (step % 7 == 6) app.physics.triggerWheel(120, app.settings);
+            ++step;
+        }
+    }
+#endif
     app.physics.step(dt, wr, app.input, app.settings);
     if (!physicsLooksSane(app.physics)) {
         // A single non-finite value would otherwise make every later frame draw nothing (the cat
@@ -2221,8 +2239,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         setAutoStartEnabled(true);
     }
 
-    app.input.onKeyDown = [&](PhysicalKey k) { app.physics.triggerKeyDown(k, app.settings); };
+    app.input.onKeyDown = [&](PhysicalKey k) {
+        const auto& held = app.input.activeKeys;
+        app.physics.setModifierState(held.count(PhysicalKey::LeftControl) > 0 || held.count(PhysicalKey::RightControl) > 0,
+                                      held.count(PhysicalKey::LeftShift) > 0 || held.count(PhysicalKey::RightShift) > 0,
+                                      held.count(PhysicalKey::LeftOption) > 0 || held.count(PhysicalKey::RightOption) > 0,
+                                      held.count(PhysicalKey::LeftCommand) > 0 || held.count(PhysicalKey::RightCommand) > 0);
+        app.physics.triggerKeyDown(k, app.settings);
+    };
     app.input.onMouseClick = [&](int btn, bool down) { app.physics.triggerMouseClick(btn, down, app.settings); };
+    app.input.onWheel = [&](int delta) { app.physics.triggerWheel(delta, app.settings); };
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);

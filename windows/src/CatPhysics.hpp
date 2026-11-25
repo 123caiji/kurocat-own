@@ -185,6 +185,8 @@ struct FloatingKeycap {
     float age = 0.0f;
     float lifetime = 1.25f;
     float rotation = 0.0f;
+    // 0=键盘键 1=鼠标左 2=鼠标右 3=鼠标中 4=滚轮（决定键帽配色）
+    int kind = 0;
 };
 
 struct PurrSparkle {
@@ -267,6 +269,7 @@ public:
     bool rightPawTyping = false;
 
     std::unordered_map<PhysicalKey, float> keyGlow;
+    bool modCtrl_ = false, modShift_ = false, modAlt_ = false, modWin_ = false;
     std::vector<FloatingKeycap> floatingKeycaps;
     std::vector<PurrSparkle> sparkles;
 
@@ -317,8 +320,62 @@ public:
         sleepiness = 0.0f;
 
         if (settings.showKeyBadges) {
-            spawnFloatingKeycap(keyBadgeLabel(key), pt, now);
+            // 修饰键本身不弹键帽（否则 Ctrl/Shift 会刷屏），只留下发光
+            if (!isModifierKey(key)) {
+                std::wstring label = keyBadgeLabel(key);
+                std::wstring prefix = heldModifierPrefix(key);
+                if (!prefix.empty()) label = prefix + L"+" + label;
+                spawnFloatingKeycap(label, pt, now, 0);
+            }
         }
+    }
+
+    /// 修饰键：只发光，不弹键帽
+    static bool isModifierKey(PhysicalKey k) {
+        switch (k) {
+            case PhysicalKey::LeftShift:
+            case PhysicalKey::RightShift:
+            case PhysicalKey::LeftControl:
+            case PhysicalKey::RightControl:
+            case PhysicalKey::LeftOption:
+            case PhysicalKey::RightOption:
+            case PhysicalKey::LeftCommand:
+            case PhysicalKey::RightCommand:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// 由宿主每帧/每次按键前同步修饰键状态（CatPhysics 不直接持有 InputEngine）
+    void setModifierState(bool ctrl, bool shift, bool alt, bool win) {
+        modCtrl_ = ctrl;
+        modShift_ = shift;
+        modAlt_ = alt;
+        modWin_ = win;
+    }
+
+    /// 当前按住的修饰键前缀（用于组合键合并成一颗键帽，如 Ctrl+Shift+）
+    std::wstring heldModifierPrefix(PhysicalKey current) const {
+        if (isModifierKey(current)) return std::wstring();
+        std::wstring p;
+        if (modCtrl_) p += L"Ctrl";
+        if (modShift_) { if (!p.empty()) p += L"+"; p += L"Shift"; }
+        if (modAlt_) { if (!p.empty()) p += L"+"; p += L"Alt"; }
+        if (modWin_) { if (!p.empty()) p += L"+"; p += L"Win"; }
+        return p;
+    }
+
+    /// 滚轮：在鼠标位置弹一颗方向键帽
+    void triggerWheel(int delta, const CatSettings& settings) {
+        sleepiness = 0.0f;
+        pupilScale.target = 1.08f;
+        if (!settings.showKeyBadges) return;
+        double now = nowSeconds();
+        std::wstring lbl = settings.isEnglish ? (delta > 0 ? L"Wheel Up" : L"Wheel Dn")
+                                              : (delta > 0 ? L"滚轮 ↑" : L"滚轮 ↓");
+        Pt pt = { MouseBaseCenter.x + mouseOffset.point().x, MouseBaseCenter.y + mouseOffset.point().y - 10.0f };
+        spawnFloatingKeycap(lbl, pt, now, 4);
     }
 
     void triggerMouseClick(int button, bool isDown, const CatSettings& settings) {
@@ -339,7 +396,7 @@ public:
                     ? (button == 0 ? L"LMB" : (button == 1 ? L"RMB" : L"MMB"))
                     : ((button == 0) ? L"\u5DE6\u952E" : (button == 1 ? L"\u53F3\u952E" : L"\u4E2D\u952E"));
                 Pt pt = { MouseBaseCenter.x + mouseOffset.point().x, MouseBaseCenter.y + mouseOffset.point().y - 6.0f };
-                spawnFloatingKeycap(lbl, pt, now);
+                spawnFloatingKeycap(lbl, pt, now, button == 0 ? 1 : (button == 1 ? 2 : 3));
             }
         } else {
             if (button == 0) mousePressLeft.target = 0.0f;
@@ -931,7 +988,7 @@ private:
         return dist(rng);
     }
 
-    void spawnFloatingKeycap(const std::wstring& label, Pt pt, double now) {
+    void spawnFloatingKeycap(const std::wstring& label, Pt pt, double now, int kind = 0) {
         if (label.empty()) return;
         if (now - lastBadgeTime_ < 0.38) badgeCascade_ = (badgeCascade_ + 1) % 6;
         else badgeCascade_ = 0;
@@ -942,11 +999,13 @@ private:
         float startX = std::clamp(pt.x + dx * 0.45f, 55.0f, 315.0f);
         float startY = pt.y - 26.0f - (float)(badgeCascade_ % 2) * 8.0f;
 
+        // 组合键用更长存活时间，读起来更从容
+        float life = label.size() > 3 ? 1.55f : 1.25f;
         floatingKeycaps.push_back({
             label,
             { startX, startY },
             { dx * 0.65f, -36.0f - randRange(0.0f, 14.0f) },
-            0.0f, 1.25f, randRange(-0.07f, 0.07f)
+            0.0f, life, randRange(-0.07f, 0.07f), kind
         });
         if (floatingKeycaps.size() > 16) {
             floatingKeycaps.erase(floatingKeycaps.begin(), floatingKeycaps.begin() + (floatingKeycaps.size() - 16));

@@ -2531,49 +2531,83 @@ private:
 
     static void drawFloatingKeycaps(Gdiplus::Graphics& g, const CatPhysics& physics) {
         using namespace Gdiplus;
-        FontFamily ff(L"Segoe UI");
+        static FontFamily ff(L"Segoe UI");
+        static Font fSingle(&ff, 11.5f, FontStyleBold, UnitPixel);
+        static Font fSmall(&ff, 9.2f, FontStyleBold, UnitPixel);
         StringFormat sf;
         sf.SetAlignment(StringAlignmentCenter);
         sf.SetLineAlignment(StringAlignmentCenter);
 
         for (const auto& b : physics.floatingKeycaps) {
             float prog = b.age / b.lifetime;
-            float scale = 1.0f;
+            float popScale = 1.0f;
             if (b.age < 0.09f) {
-                scale = 0.72f + 0.38f * std::sin((b.age / 0.09f) * 3.14159f * 0.65f);
+                popScale = 0.72f + 0.38f * std::sin((b.age / 0.09f) * 3.14159f * 0.65f);
             } else if (b.age < 0.18f) {
-                scale = 1.10f - 0.10f * ((b.age - 0.09f) / 0.09f);
+                popScale = 1.10f - 0.10f * ((b.age - 0.09f) / 0.09f);
             }
 
             float alphaF = prog < 0.62f ? 1.0f : std::max(0.0f, 1.0f - (prog - 0.62f) / 0.38f);
             BYTE a = (BYTE)(alphaF * 255.0f);
             if (a < 4) continue;
 
+            // 宽度：单键窄、组合键宽（按字符数估算，避免每帧 MeasureString）
             size_t len = b.label.size();
             bool hasWide = !b.label.empty() && b.label[0] > 0x7F;
-            float w = (len <= 1) ? 23.0f : (len == 2 ? (hasWide ? 34.0f : 30.0f) : 38.0f);
+            float w;
+            if (len <= 1) w = 24.0f;
+            else if (len == 2) w = hasWide ? 36.0f : 32.0f;
+            else w = std::clamp(20.0f + 7.0f * (float)len, 40.0f, 86.0f);
             float h = 22.0f;
+            float radius = 7.0f;
+
+            // 键帽配色（0 键盘 / 1 左键 / 2 右键 / 3 中键 / 4 滚轮）
+            BYTE faceR = 249, faceG = 248, faceB = 243;
+            BYTE strokeR = 41, strokeG = 41, strokeB = 46;
+            BYTE textR = 31, textG = 31, textB = 36;
+            switch (b.kind) {
+                case 1: faceR = 233; faceG = 246; faceB = 255; strokeR = 43; strokeG = 127; strokeB = 184; textR = 14; textG = 58; textB = 87; break;
+                case 2: faceR = 255; faceG = 236; faceB = 236; strokeR = 184; strokeG = 61; strokeB = 61; textR = 90; textG = 22; textB = 22; break;
+                case 3: faceR = 255; faceG = 246; faceB = 226; strokeR = 184; strokeG = 134; strokeB = 43; textR = 90; textG = 62; textB = 16; break;
+                case 4: faceR = 234; faceG = 247; faceB = 242; strokeR = 46; strokeG = 158; strokeB = 126; textR = 14; textG = 74; textB = 56; break;
+                default: break;
+            }
 
             GraphicsState st = g.Save();
             g.TranslateTransform(b.position.x, b.position.y);
             g.RotateTransform(b.rotation * RadToDeg);
-            g.ScaleTransform(scale, scale);
+            g.ScaleTransform(popScale, popScale);
 
-            GraphicsPath basePath;
-            addRoundedRect(basePath, -w * 0.5f, -h * 0.5f + 2.5f, w, h, 5.5f);
-            SolidBrush baseBrush(Color((BYTE)(alphaF * 242), 38, 38, 43));
-            g.FillPath(&baseBrush, &basePath);
+            // 按下位移：出生 0.10s 内从下方 1.6px 弹起
+            float press = b.age < 0.10f ? (1.0f - b.age / 0.10f) * 1.6f : 0.0f;
+            g.TranslateTransform(0.0f, press);
+
+            // 软投影（两层，越大越淡）
+            GraphicsPath shadowFar;
+            addRoundedRect(shadowFar, -w * 0.5f - 0.8f, -h * 0.5f + 3.4f, w + 1.6f, h, radius + 0.8f);
+            SolidBrush shFar(Color((BYTE)(a * 0.16f), 0, 0, 0));
+            g.FillPath(&shFar, &shadowFar);
+            GraphicsPath shadowNear;
+            addRoundedRect(shadowNear, -w * 0.5f - 0.3f, -h * 0.5f + 1.8f, w + 0.6f, h, radius);
+            SolidBrush shNear(Color((BYTE)(a * 0.26f), 0, 0, 0));
+            g.FillPath(&shNear, &shadowNear);
 
             GraphicsPath facePath;
-            addRoundedRect(facePath, -w * 0.5f, -h * 0.5f, w, h, 5.2f);
-            SolidBrush faceBrush(Color(a, 249, 248, 243));
-            Pen facePen(Color(a, 41, 41, 46), 1.45f);
+            addRoundedRect(facePath, -w * 0.5f, -h * 0.5f, w, h, radius);
+            SolidBrush faceBrush(Color(a, faceR, faceG, faceB));
+            Pen facePen(Color(a, strokeR, strokeG, strokeB), 1.2f);
             g.FillPath(&faceBrush, &facePath);
             g.DrawPath(&facePen, &facePath);
 
-            Font font(&ff, len <= 1 ? 11.0f : 9.2f, FontStyleBold, UnitPixel);
-            SolidBrush txtBrush(Color(a, 31, 31, 36));
-            g.DrawString(b.label.c_str(), -1, &font, RectF(-w * 0.5f, -h * 0.5f, w, h), &sf, &txtBrush);
+            // 顶部高光，让键帽有体积
+            GraphicsPath gloss;
+            addRoundedRect(gloss, -w * 0.5f + 1.6f, -h * 0.5f + 1.0f, w - 3.2f, h * 0.42f, radius * 0.6f);
+            SolidBrush glossBrush(Color((BYTE)(a * 0.35f), 255, 255, 255));
+            g.FillPath(&glossBrush, &gloss);
+
+            Font& font = (len <= 1) ? fSingle : fSmall;
+            SolidBrush txtBrush(Color(a, textR, textG, textB));
+            g.DrawString(b.label.c_str(), -1, &font, RectF(-w * 0.5f, -h * 0.5f + 0.6f, w, h), &sf, &txtBrush);
 
             g.Restore(st);
         }

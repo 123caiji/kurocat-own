@@ -5,9 +5,9 @@
 
 ## 🎬 演示
 
-| 转头 / 眨眼 / 尾巴 |
-|---|
-| <img src="docs/media/demo-idle.gif" width="360" alt="KuroCat Own 转头眨眼" /> |
+| 转头 / 眨眼 / 尾巴 | 键帽气泡（键名 · 组合键 · 鼠标分色 · 滚轮方向） |
+|---|---|
+| <img src="docs/media/demo-idle.gif" width="360" alt="桌面猫转头眨眼" /> | <img src="docs/media/demo-keycaps.gif" width="360" alt="键帽气泡：键名与组合键" /> |
 
 > 两张动图都是从**本工程编译产物**的真实窗口逐帧抓的（`tools/capture.exe` + `tools/img.mjs`，零依赖），不是上游素材。
 
@@ -46,6 +46,8 @@
 | `ragdoll.kurocat` 🆕 | 暖奶茶布偶猫 | 奶油底 + 深色重点色 + 蓝眼 |
 | `calico.kurocat` 🆕 | 三花猫 | 白底 + 橘 / 黑斑块分区 |
 | `cow.kurocat` 🆕 | 奶牛猫 | 黑白燕尾服 + 白手套 + 门脸白条 |
+| `robin.kurocat` 🆕 | 知更夜蓝猫 | 夜蓝底 + 暖橙胸羽 + 琥珀瞳（原创配色） |
+| `stage.kurocat` 🆕 | 舞台夜色猫 | 深紫夜底 + 霓虹蓝粉尾纹（原创配色） |
 
 > 皮肤格式见 [`docs/skin-format.md`](docs/skin-format.md)：颜色、曲线分区、矢量花纹、体型参数、贴纸，全部是数据。
 
@@ -100,6 +102,7 @@ kurocat-own/
 - **[docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md)** —— **248 个 DSH 桌宠包的功能全景（8 大类）+ 取舍矩阵 + 赛道空白确认**
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 协作约定：**只写 C++17、零新增依赖、隐私红线**
 - **[docs/PLAN-20261125.md](docs/PLAN-20261125.md)** —— **自有功能与视觉方向规划（键帽气泡为主线、DSH 状态联动、KPM 角标、设置面板…）**
+- **[docs/REBRAND+LICENSE.md](docs/REBRAND+LICENSE.md)** —— **品牌自有化清单 + 开源合规（MIT 义务、不可复制之物、gitee 仓库核实结论）**
 - **[docs/CHANGELOG.md](docs/CHANGELOG.md)** —— 版本与变更记录（含回滚 tag 对照）
 
 ## 🙏 致谢与来源

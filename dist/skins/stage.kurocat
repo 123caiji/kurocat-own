@@ -1,0 +1,94 @@
+{
+ "formatVersion": 1,
+ "name": "舞台夜色猫",
+ "author": "kurocat-own",
+ "palette": {
+  "body": "#17141F",
+  "bodyShade": "#0F0D15",
+  "belly": "#2A2233",
+  "legs": "#17141F",
+  "paws": "#F2D7E4",
+  "earOuter": "#17141F",
+  "earInner": "#B84E7A",
+  "tail": "#17141F",
+  "tailTip": "#4FC3F7",
+  "iris": "#7FE0FF",
+  "nose": "#E88AA8",
+  "mouth": "#9C4E68",
+  "outline": "#08060CAA",
+  "crease": "#F2D7E440",
+  "whiskers": "#E9D8ECA0",
+  "stripes": "#4FC3F7"
+ },
+ "shape": {
+  "build": "sleek",
+  "bodyWidth": 0.96
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": [
+  {
+   "space": "tail",
+   "kind": "stroke",
+   "color": "#4FC3F7",
+   "alpha": 0.55,
+   "width": 2.2,
+   "points": [
+    [
+     10,
+     -3
+    ],
+    [
+     40,
+     -4
+    ],
+    [
+     70,
+     -3
+    ]
+   ]
+  },
+  {
+   "space": "tail",
+   "kind": "stroke",
+   "color": "#FF5FA2",
+   "alpha": 0.5,
+   "width": 2,
+   "points": [
+    [
+     20,
+     3
+    ],
+    [
+     50,
+     4
+    ],
+    [
+     80,
+     3
+    ]
+   ]
+  },
+  {
+   "space": "skull",
+   "kind": "stroke",
+   "color": "#7FE0FF",
+   "alpha": 0.35,
+   "width": 1.8,
+   "points": [
+    [
+     -20,
+     -26
+    ],
+    [
+     0,
+     -32
+    ],
+    [
+     20,
+     -26
+    ]
+   ]
+  }
+ ]
+}
