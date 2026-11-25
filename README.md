@@ -91,7 +91,9 @@ kurocat-own/
 想做自己的猫、自己的玩法？两份文档：
 
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** —— 皮肤生态、行为创新、数据可视化、集成扩展、工程化五条线（26 个点子，含工作量）
-- **[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)** —— **DSH 桌宠插件生态调研（dsh-pet / dsh-desktop-pet / Live2D 系）+ 本项目的差距、美观与实用优化清单、阶段计划与验收线**
+- **[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)** —— DSH 桌宠生态调研（dsh-pet / dsh-desktop-pet / Live2D 系）+ 差距、美观与实用优化清单、阶段计划与验收线
+- **[docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md)** —— **248 个 DSH 桌宠包的功能全景（8 大类）+ 取舍矩阵 + 赛道空白确认**
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 协作约定：**只写 C++17、零新增依赖、隐私红线**
 
 ## 📄 许可与来源
 
