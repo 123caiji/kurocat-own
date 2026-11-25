@@ -248,8 +248,8 @@ public:
     float scruffDragDy_ = 0.0f;
     float scruffDragAccumX_ = 0.0f;
     float scruffDragAccumY_ = 0.0f;
-    float scruffHoldTime_ = 0.0f;
-    float scruffDropTimer_ = 0.0f;
+    float scruffHoldTime = 0.0f;
+    float scruffDropTimer = 0.0f;
 public:
     float scruffStartle = 0.0f;   // 0..1：被拎起瞬间的瞪眼强度（渲染用）
     float fastMouseDuration_ = 0.0f;
@@ -446,8 +446,8 @@ public:
         isScruffDragging_ = dragging;
         if (dragging) {
             if (!wasDragging) {
-                scruffHoldTime_ = 0.0f;
-                scruffDropTimer_ = 0.0f;
+                scruffHoldTime = 0.0f;
+                scruffDropTimer = 0.0f;
                 scruffDragAccumX_ = 0.0f;
                 scruffDragAccumY_ = 0.0f;
             }
@@ -461,7 +461,7 @@ public:
             scruffDragDy_ = 0.0f;
             scruffDragAccumX_ = 0.0f;
             scruffDragAccumY_ = 0.0f;
-            if (wasDragging) scruffDropTimer_ = 0.16f;
+            if (wasDragging) scruffDropTimer = 0.16f;
             bodySquash.velocity -= 2.4f;
             headOffsetY.velocity += 78.0f;   // 落地瞬间头轻弹一下（对齐上游手感）
         }
@@ -660,8 +660,8 @@ public:
 
         scruffDrag.target = isScruffDragging_ ? 1.0f : 0.0f;
         if (isScruffDragging_) {
-            scruffHoldTime_ += dt;
-            scruffDropTimer_ = 0.0f;
+            scruffHoldTime += dt;
+            scruffDropTimer = 0.0f;
             // 把本帧累计位移折算成平滑的瞬时速度
             float instDx = scruffDragAccumX_ * (dt * 60.0f);
             float instDy = scruffDragAccumY_ * (dt * 60.0f);
@@ -670,8 +670,8 @@ public:
             scruffDragDx_ = scruffDragDx_ * 0.52f + instDx * 0.85f;
             scruffDragDy_ = scruffDragDy_ * 0.52f + instDy * 0.85f;
         } else {
-            scruffDropTimer_ = std::max(0.0f, scruffDropTimer_ - dt);
-            if (scruffDrag.value < 0.02f) scruffHoldTime_ = 0.0f;
+            scruffDropTimer = std::max(0.0f, scruffDropTimer - dt);
+            if (scruffDrag.value < 0.02f) scruffHoldTime = 0.0f;
             scruffDragDx_ *= 0.80f;
             scruffDragDy_ *= 0.80f;
         }
@@ -688,10 +688,10 @@ public:
         if (scruff > 0.3f) pupilScale.target = std::max(pupilScale.target, 1.10f + 0.18f * scruffStartle);
         // 刚被拎起 / 刚落地时的瞪眼（对齐作者的 startle）
         if (isScruffDragging_) {
-            if (scruffHoldTime_ < 0.14f) scruffStartle = 1.0f;
-            else scruffStartle = std::max(0.0f, 1.0f - (scruffHoldTime_ - 0.14f) / 0.08f);
+            if (scruffHoldTime < 0.14f) scruffStartle = 1.0f;
+            else scruffStartle = std::max(0.0f, 1.0f - (scruffHoldTime - 0.14f) / 0.08f);
         } else {
-            scruffStartle = (scruffDropTimer_ > 0.01f) ? std::min(1.0f, scruffDropTimer_ / 0.12f) : 0.0f;
+            scruffStartle = (scruffDropTimer > 0.01f) ? std::min(1.0f, scruffDropTimer / 0.12f) : 0.0f;
         }
 
         lieIntensity.target = (!isScruffDragging_ && dizzyTimer_ <= 0.0f && sleepiness > 0.65f)

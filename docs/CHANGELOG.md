@@ -2,6 +2,20 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [v0.7.0 · 悬空姿态直接移植作者实现] · 2026-11-25
+
+**重做（替换第三轮的拉伸近似）**
+- 整段移植作者 v1.4.3 `drawNativeScruffDragCat`（499 行）：拱背贝塞尔轮廓、四条弯曲垂爪（DragLimb/makeLimb/buildLimbPaths/drawDragLimb）、垂尾分段描边、2.5D 头部投影与白面罩
+- 配套移植 8 个辅助函数（fillClampedLinearGradient / isClassicBlackRim / whiteOutlineEnabled / isMilkMark / lerpF / lerpPt / setRound / smoothstepf）
+- `headPoint` 增加 `whiteSurface` 参数（与作者一致）
+- 悬空时不再走坐姿渲染分支（return 前 restore 变换）
+
+**验证**
+- build.cmd 退出码 0；演示构建 36 帧无崩溃；逐帧身体高度 141–170px
+- 图像理解模型复核：可辨认为猫、悬垂自然、轮廓连续无断裂
+
+**回滚**：`git reset --hard v0.6.3`
+
 ## [v0.6.3 · 构建脚本修复 + 资源合并] · 2026-11-25
 
 **修复（严重）**

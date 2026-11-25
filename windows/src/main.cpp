@@ -53,7 +53,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.6.2";
+constexpr const wchar_t* APP_VERSION = L"0.7.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";

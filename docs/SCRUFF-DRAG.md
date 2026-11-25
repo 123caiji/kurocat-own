@@ -72,6 +72,42 @@ dragDx = dragDx * 0.52f + instDx * 0.85f;   // 松手后按 0.80 衰减
 
 若要完全对齐，需要单独一轮重写悬空姿态渲染（约 300–400 行），建议先在对比图确认方向。
 
+## 2e. 第四轮：直接移植作者的专用姿态（不再用拉伸近似）
+
+第三轮之前我们用的是「坐姿剪影 + 拉伸/剪切」，观感生硬。这一轮**整段移植**了作者 v1.4.3 的 `drawNativeScruffDragCat`（499 行）：
+
+| 组成部分 | 移植内容 |
+|---|---|
+| 拱背轮廓 | 颈背 → 肩峰（scruffPeak）→ 臀 → 腹 → 胸 → 颈前的 6 段贝塞尔闭合路径 |
+| 四条垂爪 | `DragLimb` + `makeLimb` / `buildLimbPaths` / `drawDragLimb`：从身体深锚点伸出的弯曲小腿，随拖动方向拖尾 |
+| 垂尾 | `evalTailPt` 采样贝塞尔 + 分段描边 + 环纹，随摆动甩 |
+| 头部 | 复用作者的 2.5D 头部投影（`headPoint(..., whiteSurface)`）+ 白面罩/milk mark 处理 |
+| 装饰 | 锚点改为悬空时的颈部/尾尖位置 |
+
+配套移植的辅助函数（6 个）：`fillClampedLinearGradient`、`isClassicBlackRim`、`whiteOutlineEnabled`、`isMilkMark`、`lerpF`、`lerpPt`、`setRound`、以及 `smoothstepf`。
+
+### 渲染路径
+
+```cpp
+// CatRenderer::draw()
+if (scruff > 0.02f) {
+    drawNativeScruffDragCat(g, physics, skin, settings.eyeTheme, scruff);
+    g.Restore(flipState);
+    return;
+}
+```
+
+也就是说：**悬空时完全不画坐姿那套**（不画尾巴/剪影/前爪/贴纸），只画作者这套专用姿态。地面上则完全走原来的渲染。
+
+### 验证
+
+| 项 | 结果 |
+|---|---|
+| 编译 | 0 error（`build.cmd --no-pause` 退出码 0） |
+| 运行 | 演示构建 36 帧稳定，无崩溃 |
+| 逐帧轮廓 | 身体高度 141–170 px 变化（姿态在动） |
+| 视觉复核 | 用图像理解模型检查罐帧：**可辨认为猫、悬垂姿态自然、轮廓连续无断裂/漂浮** |
+
 ## 3. 渲染表现
 
 | 部位 | 表现 |
