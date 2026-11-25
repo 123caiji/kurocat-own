@@ -23,6 +23,7 @@ using std::max;
 #include <gdiplus.h>
 #include <wtsapi32.h>
 #include <string>
+#include <ctime>
 #include <vector>
 #include <cmath>
 #include <cwchar>
@@ -52,13 +53,23 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.2.1";
+constexpr const wchar_t* APP_VERSION = L"0.4.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
 constexpr double FRAME_INTERVAL = 1.0 / 60.0;
-constexpr const wchar_t* UPDATE_PAGE_URL = L"https://disabled.invalid/?sharecode=JVAABIVZ7L";
-constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/downloads/Tama-Windows-x64.exe?sharecode=JVAABIVZ7L";
+// ---- 更新检查（安全受限）----
+// 只做「查询 + 打开固定下载页」，**绝不下载、绝不执行任何远端文件**。
+constexpr const wchar_t* OWN_REPO = L"123caiji/tama";
+constexpr const wchar_t* UPSTREAM_REPO = L"chanke17/KuroCat";
+constexpr const wchar_t* OWN_RELEASES_URL = L"https://github.com/123caiji/tama/releases/latest";
+constexpr const wchar_t* UPSTREAM_RELEASES_URL = L"https://github.com/chanke17/KuroCat/releases/latest";
+constexpr const wchar_t* UPSTREAM_BASELINE = L"1.4.0";          // 本项目移植时的上游版本
+constexpr DWORD UPDATE_AUTO_INTERVAL_SEC = 6u * 3600u;          // 自动检查最短间隔 6h
+constexpr size_t UPDATE_MAX_BODY = 65536;                       // 响应体上限 64KB
+// 兼容遗留死代码的占位（应用内下载链路已不可达：startInAppUpdate 只打开浏览器）
+constexpr const wchar_t* UPDATE_PAGE_URL = L"https://github.com/123caiji/tama/releases/latest";
+constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/"; // 不再下载可执行文件
 constexpr UINT WM_TRAYICON = WM_APP + 1;
 constexpr UINT WM_WAKE_EXISTING = WM_APP + 2;
 constexpr UINT WM_UPDATE_CHECK_DONE = WM_APP + 3;
@@ -370,11 +381,14 @@ bool hasVisibleWindowAbove(HWND hwnd) {
 // MARK: - Auto Update Checker (GitHub Releases via WinHTTP)
 
 struct UpdateCheckResult {
-    bool ok = false;
+    bool ok = false;              // 至少成功查询到自有仓库
     bool manual = false;
-    bool hasUpdate = false;
+    bool hasUpdate = false;       // 自有仓库有更新
     std::wstring latestTag;
-    std::wstring releaseUrl;
+    std::wstring releaseUrl;      // 固定值（不采用响应里的 url）
+    bool upstreamOk = false;      // 上游查询成功
+    bool upstreamHasNew = false;  // 上游比基线新
+    std::wstring upstreamTag;
 };
 
 std::string extractJsonStringField(const std::string& json, const char* fieldName) {
@@ -485,7 +499,8 @@ std::string fetchWorkBuddyPath(HINTERNET hConnect, LPCWSTR path) {
     std::string body;
     HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path, nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (hRequest) {
-        if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        std::wstring headers = std::wstring(L"User-Agent: Tama/") + APP_VERSION + L"\r\nAccept: application/vnd.github+json\r\n";
+    if (WinHttpSendRequest(hRequest, headers.c_str(), (DWORD)headers.size(), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
             WinHttpReceiveResponse(hRequest, nullptr)) {
             DWORD statusCode = 0, statusSize = sizeof(statusCode);
             WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
@@ -506,6 +521,96 @@ std::string fetchWorkBuddyPath(HINTERNET hConnect, LPCWSTR path) {
     }
     return body;
 }
+
+/// 最近一次更新的 HTTP 状态码（诊断用）
+static int g_lastUpdateHttpStatus = -1;
+
+/// 有界 HTTPS 读取（上限 UPDATE_MAX_BODY，避免被超大响应拖住）
+std::string fetchHttpsBodyBounded(HINTERNET hConnect, LPCWSTR path, size_t maxBytes) {
+    std::string body;
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path, nullptr, WINHTTP_NO_REFERER,
+                                            WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hRequest) return body;
+    if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(hRequest, nullptr)) {
+        DWORD status = 0; DWORD sz = sizeof(status);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX);
+        g_lastUpdateHttpStatus = (int)status;
+        if (status == 200) {
+            DWORD avail = 0;
+            while (WinHttpQueryDataAvailable(hRequest, &avail) && avail > 0) {
+                if (body.size() + avail > maxBytes) { body.resize(maxBytes); break; }
+                std::vector<char> buf(avail);
+                DWORD read = 0;
+                if (!WinHttpReadData(hRequest, buf.data(), avail, &read) || read == 0) break;
+                body.append(buf.data(), read);
+            }
+        }
+    }
+    WinHttpCloseHandle(hRequest);
+    return body;
+}
+
+/// tag 清洗：只保留版本号安全字符（防注入/防奇怪字符进入界面与 URL）
+std::wstring sanitizeTag(const std::string& in) {
+    std::wstring out;
+    for (char c : in) {
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            c == '.' || c == '-' || c == '_' || c == '+') {
+            out.push_back((wchar_t)c);
+        }
+        if (out.size() >= 32) break;
+    }
+    return out;
+}
+
+/// 查询 GitHub Releases 最新 tag（仅 api.github.com，HTTPS，响应上限 64KB）
+bool queryLatestReleaseTag(HINTERNET hSession, const wchar_t* repo, std::wstring& tagOut, bool& reachable) {
+    reachable = false;
+    // 走 github.com/releases/latest 的 302 跳转拿 tag：不消耗 API 配额，也不需要 token。
+    // 只有 HTTPS + 固定 host（github.com），响应体丢弃，仅取最终 URL。
+    HINTERNET hConnect = WinHttpConnect(hSession, L"github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) return false;
+    std::wstring path = std::wstring(L"/") + repo + L"/releases/latest";
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                            WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    bool got = false;
+    if (hRequest) {
+        DWORD policy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_REDIRECT_POLICY, &policy, sizeof(policy));
+        std::wstring headers = std::wstring(L"User-Agent: Tama/") + APP_VERSION + L"\r\n";
+        if (WinHttpSendRequest(hRequest, headers.c_str(), (DWORD)headers.size(), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+            WinHttpReceiveResponse(hRequest, nullptr)) {
+            DWORD status = 0, sz = sizeof(status);
+            WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX);
+            g_lastUpdateHttpStatus = (int)status;
+            wchar_t urlBuf[1024] = {0};
+            DWORD urlLen = sizeof(urlBuf);
+            if (WinHttpQueryOption(hRequest, WINHTTP_OPTION_URL, urlBuf, &urlLen)) {
+                reachable = true;
+                std::wstring finalUrl(urlBuf);
+                size_t tagPos = finalUrl.find(L"/tag/");
+                std::wstring seg;
+                if (tagPos != std::wstring::npos) {
+                    seg = finalUrl.substr(tagPos + 5);
+                } else {
+                    size_t slash = finalUrl.find_last_of(L'/');
+                    if (slash != std::wstring::npos) seg = finalUrl.substr(slash + 1);
+                }
+                std::string narrow;
+                for (wchar_t c : seg) if (c < 128) narrow.push_back((char)c);
+                tagOut = sanitizeTag(narrow);
+                got = !tagOut.empty();
+            }
+        }
+        WinHttpCloseHandle(hRequest);
+    }
+    WinHttpCloseHandle(hConnect);
+    return got;
+}
+
 
 HINTERNET openWinHttpSession(const std::wstring& ua) {
     // Windows 8.1+ supports AUTOMATIC_PROXY; Windows 7 requires DEFAULT_PROXY.
@@ -562,29 +667,25 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
     if (delayMs > 0) Sleep((DWORD)delayMs);
     auto* res = new UpdateCheckResult();
     res->manual = manual;
+    res->releaseUrl = OWN_RELEASES_URL;   // 固定页面，绝不采用响应里的 URL
 
     std::wstring ua = std::wstring(L"Tama/") + APP_VERSION;
     HINTERNET hSession = openWinHttpSession(ua);
     if (hSession) {
         WinHttpSetTimeouts(hSession, 8000, 8000, 8000, 8000);
-        HINTERNET hConnect = WinHttpConnect(hSession, L"disabled.invalid", INTERNET_DEFAULT_HTTPS_PORT, 0);
-        if (hConnect) {
-            std::string body = fetchWorkBuddyPath(hConnect, L"/version.json?sharecode=JVAABIVZ7L");
-            std::string tag = extractJsonStringField(body, "tag_name");
-            std::string url = extractJsonStringField(body, "html_url");
 
-            if (tag.empty()) {
-                std::string html = fetchWorkBuddyPath(hConnect, L"/?sharecode=JVAABIVZ7L");
-                tag = extractVersionFromHtml(html);
-            }
+        std::wstring ownTag; bool ownReachable = false;
+        if (queryLatestReleaseTag(hSession, OWN_REPO, ownTag, ownReachable) && !ownTag.empty()) {
+            res->ok = true;
+            res->latestTag = ownTag;
+            res->hasUpdate = isSemVerNewer(ownTag, APP_VERSION);
+        }
 
-            if (!tag.empty()) {
-                res->ok = true;
-                res->latestTag = utf8ToWide(tag);
-                res->releaseUrl = url.empty() ? UPDATE_PAGE_URL : utf8ToWide(url);
-                res->hasUpdate = isSemVerNewer(res->latestTag, APP_VERSION);
-            }
-            WinHttpCloseHandle(hConnect);
+        std::wstring upTag; bool upReachable = false;
+        if (queryLatestReleaseTag(hSession, UPSTREAM_REPO, upTag, upReachable) && !upTag.empty()) {
+            res->upstreamOk = true;
+            res->upstreamTag = upTag;
+            res->upstreamHasNew = isSemVerNewer(upTag, UPSTREAM_BASELINE);
         }
         WinHttpCloseHandle(hSession);
     }
@@ -644,19 +745,34 @@ int readDshState() {
 }
 
 void startAsyncUpdateCheck(HWND notifyHwnd, bool manual, int delayMs = 0) {
-    // 安全红线：禁用上游自动更新通道。
-    // 上游实现会从作者私有域名下载 exe、只校验长度与 "MZ" 魔数后自动替换并执行，
-    // 对本项目属于不受控的代码执行入口。改由手动下载本仓库 Release。
-    (void)notifyHwnd;
-    (void)manual;
-    (void)delayMs;
-    return;
+    if (!notifyHwnd) return;
+    // 自动检查节流：6h 内不重复（手动检查不受限）。时间戳只存在本机注册表。
+    if (!manual) {
+        DWORD last = 0;
+        HKEY hKey = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Tama", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            DWORD sz = sizeof(last), type = 0;
+            RegQueryValueExW(hKey, L"LastUpdateCheck", nullptr, &type, (LPBYTE)&last, &sz);
+            RegCloseKey(hKey);
+        }
+        DWORD now = (DWORD)time(nullptr);
+        if (last != 0 && now > last && (now - last) < UPDATE_AUTO_INTERVAL_SEC) return;
+    }
     auto* params = new UpdateCheckThreadParams{ notifyHwnd, manual, delayMs };
     HANDLE hThread = CreateThread(nullptr, 0, updateCheckThreadProc, params, 0, nullptr);
     if (hThread) {
         CloseHandle(hThread);
     } else {
         delete params;
+        return;
+    }
+    if (!manual) {
+        HKEY hKey = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tama", 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS) {
+            DWORD stamp = (DWORD)time(nullptr);
+            RegSetValueExW(hKey, L"LastUpdateCheck", 0, REG_DWORD, (const BYTE*)&stamp, sizeof(stamp));
+            RegCloseKey(hKey);
+        }
     }
 }
 
@@ -782,14 +898,10 @@ DWORD WINAPI updateDownloadThreadProc(LPVOID param) {
 }
 
 void startInAppUpdate(AppState& app) {
-    if (app.isUpdating || !app.menuOwnerHwnd) return;
-    app.isUpdating = true;
-    HANDLE hThread = CreateThread(nullptr, 0, updateDownloadThreadProc, app.menuOwnerHwnd, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
-        app.isUpdating = false;
-    }
+    // 安全红线：本分支不在应用内下载/替换/执行任何远端文件。
+    // 「更新」= 打开固定的 GitHub Release 页面，由用户自行决定是否下载。
+    (void)app;
+    ShellExecuteW(nullptr, L"open", OWN_RELEASES_URL, nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void registerTrayIcon(AppState& app) {
@@ -2121,26 +2233,29 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_UPDATE_CHECK_DONE: {
             auto* res = reinterpret_cast<UpdateCheckResult*>(lParam);
             if (res) {
-                if (app && res->ok && res->hasUpdate) {
+                if (app && res->hasUpdate) {
                     app->availableUpdateVersion = res->latestTag;
-                    app->availableUpdateUrl = res->releaseUrl;
-                    // Show WHICH exe is running: the usual cause of "I already updated but it still
-                    // says there's a new version" is an old copy (Desktop / autostart) still running.
-                    std::wstring msg = L"\u53D1\u73B0 Tama \u65B0\u7248\u672C " + res->latestTag
-                        + L"\n\u5F53\u524D\u7248\u672C\uFF1Av" + APP_VERSION
-                        + L"\n\u5F53\u524D\u8FD0\u884C\u7684\u7A0B\u5E8F\uFF1A" + currentExePath()
-                        + L"\n\n\u5982\u679C\u4F60\u5DF2\u7ECF\u4E0B\u8F7D\u8FC7\u65B0\u7248\uFF0C\u76F4\u63A5\u53CC\u51FB\u65B0\u7248 exe \u5373\u53EF\u81EA\u52A8\u66FF\u6362\u6389\u8FD9\u4E2A\u65E7\u7248\u3002"
-                        + L"\n\n\u662F\u5426\u7ACB\u5373\u5728\u8F6F\u4EF6\u5185\u81EA\u52A8\u4E0B\u8F7D\u5E76\u66F4\u65B0\u91CD\u542F\uFF1F";
+                    app->availableUpdateUrl = OWN_RELEASES_URL;
+                    std::wstring msg = L"\u53D1\u73B0 Tama \u65B0\u7248\u672C v" + res->latestTag
+                        + L"\uFF08\u5F53\u524D v" + APP_VERSION + L"\uFF09";
+                    if (res->upstreamHasNew) {
+                        msg += L"\n\n\u4E0A\u6E38 KuroCat \u4E5F\u5DF2\u66F4\u65B0\u5230 v" + res->upstreamTag
+                            + L"\uFF08\u672C\u9879\u76EE\u79FB\u690D\u57FA\u7EBF " + UPSTREAM_BASELINE + L"\uFF0C\u4EC5\u4F9B\u77E5\u6089\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5B89\u88C5\uFF09";
+                    }
+                    msg += L"\n\n\u662F\u5426\u6253\u5F00 GitHub \u4E0B\u8F7D\u9875\uFF1F\n\uFF08\u672C\u8F6F\u4EF6\u4E0D\u4F1A\u81EA\u52A8\u4E0B\u8F7D\u6216\u6267\u884C\u4EFB\u4F55\u6587\u4EF6\uFF09";
                     if (MessageBoxW(nullptr, msg.c_str(), L"Tama \u66F4\u65B0\u63D0\u9192",
                                     MB_YESNO | MB_ICONINFORMATION | MB_TOPMOST) == IDYES) {
-                        startInAppUpdate(*app);
+                        ShellExecuteW(nullptr, L"open", OWN_RELEASES_URL, nullptr, nullptr, SW_SHOWNORMAL);
                     }
                 } else if (res->manual) {
                     if (res->ok) {
-                        std::wstring msg = std::wstring(L"\u5F53\u524D\u7248\u672C v") + APP_VERSION + L" \u5DF2\u662F\u6700\u65B0\u7248\u672C\u3002";
+                        std::wstring msg = std::wstring(L"\u5F53\u524D\u5DF2\u662F\u6700\u65B0\u7248\u672C v") + APP_VERSION;
+                        if (res->upstreamHasNew) {
+                            msg += L"\n\n\u4E0A\u6E38 KuroCat \u6709\u65B0\u7248\u672C\uFF1A" + res->upstreamTag;
+                        }
                         MessageBoxW(nullptr, msg.c_str(), L"Tama \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
                     } else {
-                        MessageBoxW(nullptr, L"\u65E0\u6CD5\u8FDE\u63A5\u5230\u66F4\u65B0\u670D\u52A1\u5668\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6216\u68C0\u67E5\u7F51\u7EDC\u3002",
+                        MessageBoxW(nullptr, L"\u65E0\u6CD5\u8FDE\u63A5\u5230\u66F4\u65B0\u670D\u52A1\u5668\uFF08\u5DF2\u9759\u9ED8\u5931\u8D25\uFF0C\u4E0D\u5F71\u54CD\u4F7F\u7528\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002",
                                     L"Tama \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONWARNING | MB_TOPMOST);
                     }
                 }
@@ -2240,7 +2355,52 @@ bool shutDownRunningInstance(HWND owner, DWORD timeoutMs) {
 
 } // namespace
 
+
+/// 诊断入口：--check-update 同步执行一次检查并写日志（不弹窗、不下载、不执行任何文件）
+int runUpdateCheckCli() {
+    auto* res = new UpdateCheckResult();
+    std::wstring ua = std::wstring(L"Tama/") + APP_VERSION;
+    HINTERNET hSession = openWinHttpSession(ua);
+    if (hSession) {
+        WinHttpSetTimeouts(hSession, 8000, 8000, 8000, 8000);
+        std::wstring ownTag; bool ownReach = false;
+        if (queryLatestReleaseTag(hSession, OWN_REPO, ownTag, ownReach) && !ownTag.empty()) {
+            res->ok = true;
+            res->latestTag = ownTag;
+            res->hasUpdate = isSemVerNewer(ownTag, APP_VERSION);
+        }
+        std::wstring upTag; bool upReach = false;
+        if (queryLatestReleaseTag(hSession, UPSTREAM_REPO, upTag, upReach) && !upTag.empty()) {
+            res->upstreamOk = true;
+            res->upstreamTag = upTag;
+            res->upstreamHasNew = isSemVerNewer(upTag, UPSTREAM_BASELINE);
+        }
+        WinHttpCloseHandle(hSession);
+    }
+    wchar_t exe[MAX_PATH] = {0};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring dir(exe);
+    size_t slash = dir.find_last_of(L"\\");
+    std::wstring logPath = (slash == std::wstring::npos ? std::wstring(L".") : dir.substr(0, slash)) + L"\\update-check.log";
+    FILE* f = _wfopen(logPath.c_str(), L"w");
+    if (f) {
+        fprintf(f, "appVersion=%ls\n", APP_VERSION);
+        fprintf(f, "ownRepo=%ls ok=%d latest=%ls hasUpdate=%d\n", OWN_REPO, res->ok ? 1 : 0, res->latestTag.c_str(), res->hasUpdate ? 1 : 0);
+        fprintf(f, "upstream=%ls ok=%d latest=%ls newerThanBaseline=%d baseline=%ls\n", UPSTREAM_REPO, res->upstreamOk ? 1 : 0, res->upstreamTag.c_str(), res->upstreamHasNew ? 1 : 0, UPSTREAM_BASELINE);
+        fprintf(f, "httpStatus=%d\n", g_lastUpdateHttpStatus);
+        fprintf(f, "downloadUrl(openOnly)=%ls\n", OWN_RELEASES_URL);
+        fclose(f);
+    }
+    delete res;
+    return 0;
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
+    // 诊断入口：--check-update 同步跑一次更新检查并写日志后退出（不建窗口、不下载、不执行任何文件）
+    if (commandLineHasFlag(L"--check-update")) {
+        return runUpdateCheckCli();
+    }
+
     // Enable best available DPI awareness (Per-Monitor V2 on Win10/11, Per-Monitor on Win8.1, System DPI on Win7)
     enableBestDpiAwareness();
 

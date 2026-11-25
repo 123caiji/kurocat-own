@@ -65,6 +65,16 @@ Tama 每 150ms 读一次本地状态文件，不联网、不需要插件也能�
 
 写这个文件的一方可以是任何东西：DSH 插件、脚本、CI 任务。协议与示例见 [docs/DSH-STATE-BRIDGE.md](docs/DSH-STATE-BRIDGE.md)。
 
+## 🔄 更新检查（安全优先）
+
+右键 → 系统 → 检查更新：只查询版本号并提示，**不会下载或执行任何远端文件**。
+
+- 自有版本：`github.com/123caiji/tama/releases/latest`（302 跳转取 tag，不消耗 API 配额、不需要 token）
+- 上游版本：`github.com/chanke17/KuroCat/releases/latest`（与移植基线 `1.4.0` 比较，仅提示）
+- 6 小时节流、失败静默、响应体上限 64KB、tag 严格清洗、打开的是**编译期固定 URL**
+
+完整威胁模型与六条约束见 [docs/UPDATE-SECURITY.md](docs/UPDATE-SECURITY.md)。诊断：`dist\tama.exe --check-update`
+
 ## 📁 目录结构
 
 ```text

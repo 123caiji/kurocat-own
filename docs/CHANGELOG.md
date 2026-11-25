@@ -2,6 +2,20 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [v0.4.0 · 安全更新检查] · 2026-11-25
+
+**新增**
+- 「检查更新」改为**自有渠道 + 上游同步提示**：
+  - 自有：`123caiji/tama` 的 `releases/latest`（302 跳转取 tag，不用 API、不需要 token）
+  - 上游：`chanke17/KuroCat` 最新 tag 与移植基线 `1.4.0` 比较，仅提示不安装
+- 自动检查 6h 节流（注册表 `LastUpdateCheck`），失败静默
+- 诊断入口 `--check-update`（写 `update-check.log`，不弹窗）
+
+**安全（重点）**
+- 只查询、只打开**编译期固定 URL**；不下载/不替换/不执行任何远端文件
+- 仅 HTTPS + 固定 host；响应体丢弃、上限 64KB；tag 严格清洗（`[0-9A-Za-z.\-_+]`，≤32）
+- 详见 [UPDATE-SECURITY.md](UPDATE-SECURITY.md)
+
 ## [v0.3 · 菜单与皮肤打磨] · 2026-11-25
 
 **修复**

@@ -21,3 +21,5 @@ dist/state-hit.log
 dist/tama-live.bmp
 dist/cmp-*.bmp
 state-dir/
+
+dist/update-check.log
