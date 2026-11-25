@@ -1,81 +1,345 @@
 {
  "formatVersion": 1,
- "name": "知更夜蓝猫",
+ "name": "知更鸟 · 夜航",
  "author": "Tama",
  "palette": {
-  "body": "#2E3B4E",
-  "bodyShade": "#26313F",
-  "belly": "#C9722F",
-  "legs": "#3A4A5F",
-  "paws": "#EDEFF2",
-  "earOuter": "#2E3B4E",
-  "earInner": "#C08A72",
-  "tail": "#26313F",
-  "tailTip": "#C9722F",
-  "iris": "#F0B03C",
-  "nose": "#E0A79E",
-  "mouth": "#A87F7C",
-  "outline": "#161E2888",
-  "crease": "#B9C6D62E",
-  "whiskers": "#DCE6F2A0",
-  "stripes": "#3F4F66"
+  "body": "#34455C",
+  "bodyShade": "#1B2634",
+  "belly": "#E8DFCF",
+  "legs": "#2A374A",
+  "paws": "#EDE6DA",
+  "earOuter": "#2A374A",
+  "earInner": "#B97A5C",
+  "tail": "#1A2433",
+  "tailTip": "#6F849C",
+  "iris": "#E8A33D",
+  "nose": "#C98B7A",
+  "mouth": "#8E6A60",
+  "outline": "#0D1622A0",
+  "crease": "#BFD0E32A",
+  "whiskers": "#DCE6F2A8",
+  "stripes": "#D97638"
  },
  "shape": {
   "build": "standard",
-  "cheekFullness": 1.04
+  "cheekFullness": 1.02,
+  "bodyWidth": 1.02
  },
  "headSurface": "dome",
  "idleLegs": "chest",
+ "regions": [
+  {
+   "space": "body",
+   "fill": "#D97638",
+   "alpha": 0.95,
+   "anchors": [
+    {
+     "x": -44,
+     "y": -78,
+     "inX": -44,
+     "inY": -78,
+     "outX": -40,
+     "outY": -52
+    },
+    {
+     "x": -40,
+     "y": -52,
+     "inX": -44,
+     "inY": -66,
+     "outX": -30,
+     "outY": -34
+    },
+    {
+     "x": -26,
+     "y": -18,
+     "inX": -34,
+     "inY": -26,
+     "outX": -14,
+     "outY": -12
+    },
+    {
+     "x": 0,
+     "y": -10,
+     "inX": -12,
+     "inY": -12,
+     "outX": 12,
+     "outY": -12
+    },
+    {
+     "x": 26,
+     "y": -18,
+     "inX": 14,
+     "inY": -12,
+     "outX": 34,
+     "outY": -26
+    },
+    {
+     "x": 40,
+     "y": -52,
+     "inX": 30,
+     "inY": -34,
+     "outX": 44,
+     "outY": -66
+    },
+    {
+     "x": 44,
+     "y": -78,
+     "inX": 40,
+     "inY": -52,
+     "outX": 44,
+     "outY": -78
+    }
+   ]
+  },
+  {
+   "space": "body",
+   "fill": "#F0894A",
+   "alpha": 0.55,
+   "anchors": [
+    {
+     "x": -22,
+     "y": -62,
+     "inX": -22,
+     "inY": -62,
+     "outX": -18,
+     "outY": -50
+    },
+    {
+     "x": -12,
+     "y": -34,
+     "inX": -18,
+     "inY": -46,
+     "outX": -6,
+     "outY": -28
+    },
+    {
+     "x": 0,
+     "y": -28,
+     "inX": -6,
+     "inY": -28,
+     "outX": 6,
+     "outY": -28
+    },
+    {
+     "x": 12,
+     "y": -34,
+     "inX": 6,
+     "inY": -28,
+     "outX": 18,
+     "outY": -46
+    },
+    {
+     "x": 22,
+     "y": -62,
+     "inX": 18,
+     "inY": -50,
+     "outX": 22,
+     "outY": -62
+    }
+   ]
+  }
+ ],
  "marks": [
+  {
+   "space": "skull",
+   "kind": "polygon",
+   "color": "#22303F",
+   "alpha": 0.85,
+   "points": [
+    [
+     -46,
+     -30
+    ],
+    [
+     0,
+     -44
+    ],
+    [
+     46,
+     -30
+    ],
+    [
+     40,
+     -14
+    ],
+    [
+     0,
+     -26
+    ],
+    [
+     -40,
+     -14
+    ]
+   ]
+  },
   {
    "space": "head",
    "kind": "polygon",
-   "color": "#C9722F",
-   "alpha": 0.9,
+   "color": "#E8DFCF",
+   "alpha": 0.95,
    "points": [
     [
+     -16,
+     14
+    ],
+    [
      0,
-     18
-    ],
-    [
-     -26,
      6
     ],
     [
-     -18,
+     16,
+     14
+    ],
+    [
+     10,
      30
     ],
     [
-     18,
-     30
+     0,
+     34
     ],
     [
-     26,
+     -10,
+     30
+    ]
+   ]
+  },
+  {
+   "space": "head",
+   "kind": "stroke",
+   "color": "#D97638",
+   "alpha": 0.55,
+   "width": 2.4,
+   "points": [
+    [
+     -34,
+     -14
+    ],
+    [
+     -40,
+     -6
+    ],
+    [
+     -36,
+     4
+    ]
+   ]
+  },
+  {
+   "space": "head",
+   "kind": "stroke",
+   "color": "#D97638",
+   "alpha": 0.55,
+   "width": 2.4,
+   "points": [
+    [
+     34,
+     -14
+    ],
+    [
+     40,
+     -6
+    ],
+    [
+     36,
+     4
+    ]
+   ]
+  },
+  {
+   "space": "head",
+   "kind": "stroke",
+   "color": "#1B2634",
+   "alpha": 0.45,
+   "width": 2,
+   "points": [
+    [
+     -30,
+     2
+    ],
+    [
+     -20,
      6
+    ],
+    [
+     -14,
+     2
+    ]
+   ]
+  },
+  {
+   "space": "head",
+   "kind": "stroke",
+   "color": "#1B2634",
+   "alpha": 0.45,
+   "width": 2,
+   "points": [
+    [
+     14,
+     2
+    ],
+    [
+     20,
+     6
+    ],
+    [
+     30,
+     2
+    ]
+   ]
+  },
+  {
+   "space": "tail",
+   "kind": "stroke",
+   "color": "#6F849C",
+   "alpha": 0.6,
+   "width": 3,
+   "points": [
+    [
+     16,
+     -3
+    ],
+    [
+     40,
+     -3
+    ]
+   ]
+  },
+  {
+   "space": "tail",
+   "kind": "stroke",
+   "color": "#6F849C",
+   "alpha": 0.45,
+   "width": 2.6,
+   "points": [
+    [
+     62,
+     -3
+    ],
+    [
+     82,
+     -3
     ]
    ]
   },
   {
    "space": "body",
-   "kind": "polygon",
-   "color": "#C9722F",
-   "alpha": 0.85,
+   "kind": "stroke",
+   "color": "#1B2634",
+   "alpha": 0.35,
+   "width": 2.2,
    "points": [
     [
-     -30,
-     -70
+     -40,
+     -30
     ],
     [
-     30,
-     -70
+     -24,
+     -24
     ],
     [
-     22,
-     -20
-    ],
-    [
-     -22,
-     -20
+     -10,
+     -26
     ]
    ]
   }

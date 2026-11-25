@@ -41,7 +41,7 @@
 | `ragdoll.kurocat` | 暖奶茶布偶猫 | 奶油底 + 深色重点色 + 蓝眼 |
 | `calico.kurocat` | 三花猫 | 白底 + 橘 / 黑斑块分区 |
 | `cow.kurocat` | 奶牛猫 | 黑白燕尾服 + 白手套 + 门脸白条 |
-| `robin.kurocat` | 知更夜蓝猫 | 夜蓝底 + 暖橙胸羽 + 琥珀瞳 |
+| `robin.kurocat` | 知更鸟 · 夜航 | 夜蓝渐变底 + 暖橙胸羽分区 + 冠部暗色 + 尾羽浅带 + 琥珀瞳（分层着色） |
 | `stage.kurocat` | 舞台夜色猫 | 深紫夜底 + 霓虹蓝粉尾纹 |
 
 > 换肤：右键小猫 →「猫咪皮肤」；或把 `.kurocat` 拖进「换装间」。格式规范见 [docs/skin-format.md](docs/skin-format.md)。
@@ -74,7 +74,7 @@ tama/
 ├─ skins/            皮肤源文件
 ├─ dist/skins/       随包分发的皮肤
 ├─ docs/             格式、桥接、规划、变更、媒体
-├─ tools/            抓帧 / GIF 编码 / 性能采样 / 退出工具
+├─ tools/            抓帧 / GIF 编码 / 性能采样 / 退出 / 皮肤校验（skincheck）
 ├─ build.cmd         一键编译
 └─ run.cmd           一键启动
 ```
