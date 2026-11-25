@@ -11,6 +11,10 @@
 - 自动检查 6h 节流（注册表 `LastUpdateCheck`），失败静默
 - 诊断入口 `--check-update`（写 `update-check.log`，不弹窗）
 
+**补：移植上游两项低风险改进（P0-A）**
+- `windows/tama.rc`：VERSIONINFO（产品名 Tama / 版本 0.4.0 / 版权含上游 MIT 声明）→ exe 属性页可见
+- `windows/app.manifest`：补 `<trustInfo>` 显式 `asInvoker`（默认不提权），assemblyIdentity 改为 Tama
+
 **安全（重点）**
 - 只查询、只打开**编译期固定 URL**；不下载/不替换/不执行任何远端文件
 - 仅 HTTPS + 固定 host；响应体丢弃、上限 64KB；tag 严格清洗（`[0-9A-Za-z.\-_+]`，≤32）
