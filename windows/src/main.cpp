@@ -53,7 +53,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.5.1";
+constexpr const wchar_t* APP_VERSION = L"0.6.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -1869,6 +1869,38 @@ void tickAndRender(AppState& app) {
     int w = std::max(1, (int)(wr.right - wr.left));
     int h = std::max(1, (int)(wr.bottom - wr.top));
 
+#ifdef KC_DEMO_DRAG
+    // 仅录制演示用：周期性地"抓起后颈并左右甩动"，验证 2D 摆动物理
+    {
+        static double demoDragStart = 0.0;
+        double now = nowSeconds();
+        if (demoDragStart <= 0.0) demoDragStart = now;
+        double t = now - demoDragStart;
+        double phase = std::fmod(t, 4.0);
+        if (phase < 2.8) {
+            float dx = (float)std::sin((float)t * 3.1f) * 9.0f;
+            float dy = (float)std::cos((float)t * 2.3f) * 6.0f;
+            app.physics.setDragging(true, dx, dy);
+        } else {
+            app.physics.setDragging(false);
+        }
+        {
+            static double nextLog = 0.0;
+            if (now > nextLog) {
+                nextLog = now + 0.2;
+                static FILE* lf = nullptr;
+                if (!lf) lf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\drag-physics.log", "a");
+                if (lf) {
+                    fprintf(lf, "t=%.2f scruff=%.3f swingX=%.3f swingY=%.3f tail=%.3f\n",
+                            t, app.physics.scruffDrag.value, app.physics.scruffSwing.value,
+                            app.physics.scruffSwingY.value, app.physics.scruffTailSwing.value);
+                    fflush(lf);
+                }
+            }
+        }
+    }
+#endif
+
 #ifdef KC_DEMO_BADGES
     // 仅录制演示用：每 0.55s 模拟一次按键/点击，让键帽持续出现
     {
@@ -2129,7 +2161,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 int nx = app->dragStartWinOrigin.x + (cur.x - app->dragStartCursor.x);
                 int ny = app->dragStartWinOrigin.y + (cur.y - app->dragStartCursor.y);
                 float stepDx = (float)(nx - wr.left);
-                app->physics.setDragging(true, app->settings.flipHorizontal ? -stepDx : stepDx);
+                float stepDy = (float)(ny - wr.top);
+                app->physics.setDragging(true, app->settings.flipHorizontal ? -stepDx : stepDx, stepDy);
                 SetWindowPos(hwnd, nullptr, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
             return 0;

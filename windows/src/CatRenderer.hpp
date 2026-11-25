@@ -161,7 +161,9 @@ public:
         float dizzyFall = dizzyFallRaw * dizzyFallRaw * (3.0f - 2.0f * dizzyFallRaw);
         float preWobble = std::clamp((dizzy - 0.12f) / 0.38f, 0.0f, 1.0f) * (1.0f - dizzyFall);
 
-        float seatY = CatPhysics::SeatAnchor.y - scruff * 22.0f + lieS * 10.0f;
+        // 后颈悬空：起吊高度用 smoothstep，避免线性生硬（对齐上游手感）
+        float scruffS = scruff * scruff * (3.0f - 2.0f * scruff);
+        float seatY = CatPhysics::SeatAnchor.y - scruffS * 38.0f + lieS * 10.0f + physics.scruffSwingY.value * 6.0f;
         float fallAngle = -dizzyFall * 1.46f + std::sin(physics.time * 9.5f) * 0.16f * preWobble;
         float fallShiftX = dizzyFall * 56.0f;
         float fallShiftY = dizzyFall * 20.0f;
@@ -1133,6 +1135,19 @@ private:
     static void drawTail(Gdiplus::Graphics& g, float seatX, float seatY, const CatPhysics& physics, const SkinSpec& skin, bool outlineOnly = false) {
         using namespace Gdiplus;
         TailCurve c = tailCurve(seatX, seatY, physics, skin);
+        // 后颈悬空时尾巴绕根部滞后摆动：直接旋转贝塞尔控制点（避免 Graphics 状态泄漏）
+        {
+            float ang = physics.scruffTailSwing.value * 9.0f * (3.14159265f / 180.0f);
+            if (std::abs(ang) > 0.001f) {
+                float cs = std::cos(ang), sn = std::sin(ang);
+                float rx = c.root.X, ry = c.root.Y;
+                auto rot = [&](Gdiplus::PointF p) -> Gdiplus::PointF {
+                    float dx = p.X - rx, dy = p.Y - ry;
+                    return Gdiplus::PointF(rx + dx * cs - dy * sn, ry + dx * sn + dy * cs);
+                };
+                c.c1 = rot(c.c1); c.c2 = rot(c.c2); c.tip = rot(c.tip);
+            }
+        }
         float width = isDazed(skin) ? 13.0f : (buildOf(skin).tailWidth * skin.shape.tailThickness);
 
         if (outlineOnly) {
@@ -2201,6 +2216,13 @@ private:
                     break;
                 case SkinAnchorPoint::TailTip: {
                     TailCurve c = tailCurve(seatX, seatY, physics, skin);
+                    float tang = physics.scruffTailSwing.value * 9.0f * (3.14159265f / 180.0f);
+                    if (std::abs(tang) > 0.001f) {
+                        float cs = std::cos(tang), sn = std::sin(tang);
+                        float rx = c.root.X, ry = c.root.Y;
+                        float dx = c.tip.X - rx, dy = c.tip.Y - ry;
+                        c.tip = Gdiplus::PointF(rx + dx * cs - dy * sn, ry + dx * sn + dy * cs);
+                    }
                     at = PointF(c.tip.X + d.offsetX, c.tip.Y + d.offsetY);
                     break;
                 }

@@ -236,13 +236,20 @@ public:
     Spring1D pupilScale{1.0f};
     Spring1D huntIntensity{0.0f};
     Spring1D scruffDrag{0.0f};
-    Spring1D scruffSwing{0.0f};
+    Spring1D scruffSwing{0.0f};    // 水平摆动
+    Spring1D scruffSwingY{0.0f};   // 垂直摆动（上提/下坠）
+    Spring1D scruffTailSwing{0.0f};// 尾巴滞后摆动
     Spring1D lieIntensity{0.0f};
     Spring1D angerIntensity{0.0f};
     Spring1D dizzyIntensity{0.0f};
     float dizzyPhase = 0.0f;
     bool isScruffDragging_ = false;
     float scruffDragDx_ = 0.0f;
+    float scruffDragDy_ = 0.0f;
+    float scruffDragAccumX_ = 0.0f;
+    float scruffDragAccumY_ = 0.0f;
+    float scruffHoldTime_ = 0.0f;
+    float scruffDropTimer_ = 0.0f;
     float fastMouseDuration_ = 0.0f;
     float dizzyTimer_ = 0.0f;
     Spring2D mouseOffset{{0.0f, 0.0f}};
@@ -431,15 +438,28 @@ public:
         }
     }
 
-    void setDragging(bool dragging, float dragDx = 0.0f) {
+    /// 后颈拖拽：抓起来时按帧累计鼠标位移，松手时给身体一个软弹（2D 摆动）
+    void setDragging(bool dragging, float dragDx = 0.0f, float dragDy = 0.0f) {
+        bool wasDragging = isScruffDragging_;
         isScruffDragging_ = dragging;
         if (dragging) {
-            scruffDragDx_ = dragDx;
+            if (!wasDragging) {
+                scruffHoldTime_ = 0.0f;
+                scruffDropTimer_ = 0.0f;
+                scruffDragAccumX_ = 0.0f;
+                scruffDragAccumY_ = 0.0f;
+            }
+            scruffDragAccumX_ += dragDx;
+            scruffDragAccumY_ += dragDy;
             sleepiness = 0.0f;
             dizzyTimer_ = 0.0f;
             fastMouseDuration_ = 0.0f;
         } else {
             scruffDragDx_ = 0.0f;
+            scruffDragDy_ = 0.0f;
+            scruffDragAccumX_ = 0.0f;
+            scruffDragAccumY_ = 0.0f;
+            if (wasDragging) scruffDropTimer_ = 0.16f;
             bodySquash.velocity -= 1.8f;
         }
     }
@@ -636,10 +656,30 @@ public:
         float dizzy = std::clamp(dizzyIntensity.value, 0.0f, 1.0f);
 
         scruffDrag.target = isScruffDragging_ ? 1.0f : 0.0f;
-        scruffSwing.target = isScruffDragging_ ? std::clamp(-scruffDragDx_ * 0.018f, -0.34f, 0.34f) : 0.0f;
-        scruffDragDx_ *= 0.82f;
-        scruffDrag.step(dt, 170.0f, 16.0f);
-        scruffSwing.step(dt, 110.0f, 10.0f);
+        if (isScruffDragging_) {
+            scruffHoldTime_ += dt;
+            scruffDropTimer_ = 0.0f;
+            // 把本帧累计位移折算成平滑的瞬时速度
+            float instDx = scruffDragAccumX_ * (dt * 60.0f);
+            float instDy = scruffDragAccumY_ * (dt * 60.0f);
+            scruffDragAccumX_ = 0.0f;
+            scruffDragAccumY_ = 0.0f;
+            scruffDragDx_ = scruffDragDx_ * 0.52f + instDx * 0.85f;
+            scruffDragDy_ = scruffDragDy_ * 0.52f + instDy * 0.85f;
+        } else {
+            scruffDropTimer_ = std::max(0.0f, scruffDropTimer_ - dt);
+            if (scruffDrag.value < 0.02f) scruffHoldTime_ = 0.0f;
+            scruffDragDx_ *= 0.80f;
+            scruffDragDy_ *= 0.80f;
+        }
+        // 悬空摆动：水平/垂直方向都按拖动速度甩，尾巴慢一拍
+        scruffSwing.target  = isScruffDragging_ ? 0.92f * std::tanh(scruffDragDx_ / 18.0f) : 0.0f;
+        scruffSwingY.target = isScruffDragging_ ? 0.78f * std::tanh(-scruffDragDy_ / 18.0f) : 0.0f;
+        scruffTailSwing.target = isScruffDragging_ ? 1.22f * std::tanh(scruffDragDx_ / 16.0f) : 0.0f;
+        scruffDrag.step(dt, 190.0f, 17.0f);
+        scruffSwing.step(dt, 92.0f, 7.4f);
+        scruffSwingY.step(dt, 108.0f, 8.4f);
+        scruffTailSwing.step(dt, 58.0f, 5.2f);
         float scruff = std::clamp(scruffDrag.value, 0.0f, 1.0f);
 
         lieIntensity.target = (!isScruffDragging_ && dizzyTimer_ <= 0.0f && sleepiness > 0.65f)
@@ -741,9 +781,10 @@ public:
 
         if (scruff > 0.25f) {
             float sway = scruffSwing.value * 28.0f;
+            float swayY = scruffSwingY.value * 10.0f;
             float kick = std::sin(time * 9.0f) * 3.5f * scruff;
-            leftPaw.setTarget({ SeatAnchor.x - 16.0f + sway, 198.0f + kick });
-            rightPaw.setTarget({ SeatAnchor.x + 16.0f + sway, 200.0f - kick });
+            leftPaw.setTarget({ SeatAnchor.x - 16.0f + sway, 198.0f + kick + swayY });
+            rightPaw.setTarget({ SeatAnchor.x + 16.0f + sway, 200.0f - kick + swayY });
             hindFoot.setTarget({ SeatAnchor.x + 12.0f + sway * 1.2f, 224.0f });
             hindFootActive.target = 0.0f;
             leftPawTyping = false;

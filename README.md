@@ -6,6 +6,7 @@
 <p align="center">
   <img src="docs/media/demo-keycaps.gif" width="360" alt="键帽气泡：键名 / 组合键 / 鼠标分色" />
   <img src="docs/media/demo-robin.gif" width="360" alt="知更鸟 · 夜航皮肤" />
+  <img src="docs/media/demo-scruff.gif" width="360" alt="后颈拖拽：悬空摆动 + 尾巴滞后" />
 </p>
 
 <p align="center">
@@ -64,6 +65,16 @@ Tama 每 150ms 读一次本地状态文件，不联网、不需要插件也能�
 ```
 
 写这个文件的一方可以是任何东西：DSH 插件、脚本、CI 任务。协议与示例见 [docs/DSH-STATE-BRIDGE.md](docs/DSH-STATE-BRIDGE.md)。
+
+## 🐾 后颈拖拽物理
+
+抓住小猫后颈提起来：身体像钟摆一样左右荡、上下沉浮，尾巴慢一拍甩，松手有软弹落地。
+
+- 四个弹簧驱动：悬空度 / 水平摆 / 垂直沉浮 / 尾巴滞后
+- 起吊高度用 smoothstep（避免生硬）、尾巴绕根部旋转、装饰贴纸跟尾巴
+- 只改物理与 4 处渲染偏移，不碰上游那 +3507 行的渲染大改
+
+参数与实测见 [docs/SCRUFF-DRAG.md](docs/SCRUFF-DRAG.md)。
 
 ## 🔄 更新检查（安全优先）
 

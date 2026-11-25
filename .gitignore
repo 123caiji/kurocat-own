@@ -30,3 +30,6 @@ dist/*-shot.bmp
 dist/live.bmp
 dist/full.bmp
 dist/t-*.bmp
+dist/drag-physics.log
+dist/drag.log
+dist/f_drag*
