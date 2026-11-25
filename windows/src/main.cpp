@@ -30,7 +30,6 @@ using std::max;
 #include "InputEngine.hpp"
 #include "CatPhysics.hpp"
 #include "CatRenderer.hpp"
-#include "ActionHud.hpp"   // 操作信息条（自有分支 P0-V1）
 #include "SkinLibrary.hpp"
 
 #ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
@@ -140,13 +139,6 @@ struct AppState {
     InputEngine input;
     CatPhysics physics;
     SkinLibrary skins;
-
-    // 操作信息条状态（P0-V1）：最近一次键 / 鼠标 / 滚轮动作
-    std::wstring actionName;
-    std::wstring actionVerb;
-    double actionTime = 0.0;
-    int wheelDir = 0;
-    double wheelTime = 0.0;
     HWND dressingRoom = nullptr;    // 「换装间」 import window (nullptr when closed)
     std::wstring dressingStatusText;  // status line of 换装间; kind 0 neutral, 1 success, 2 error
     int dressingStatusKind = 0;
@@ -604,9 +596,9 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
 }
 
 void startAsyncUpdateCheck(HWND notifyHwnd, bool manual, int delayMs = 0) {
-    // 安全红线（自有分支）：禁用上游自动更新通道。
-    // 上游实现会从作者私有域名（kurocat-download.*）下载 exe、只校验长度与 "MZ" 魔数后自动替换并执行，
-    // 对我们的自有分支属于「不受控的代码执行入口」。本分支改为手动更新（下载本仓库 Release）。
+    // 安全红线：禁用上游自动更新通道。
+    // 上游实现会从作者私有域名下载 exe、只校验长度与 "MZ" 魔数后自动替换并执行，
+    // 对本项目属于不受控的代码执行入口。改由手动下载本仓库 Release。
     (void)notifyHwnd;
     (void)manual;
     (void)delayMs;
@@ -1778,37 +1770,6 @@ void tickAndRender(AppState& app) {
     g.Clear(app.settings.obsCaptureMode == 2 ? Gdiplus::Color(255, 0, 255, 0) : Gdiplus::Color(0, 0, 0, 0));
     g.ScaleTransform((float)w / CatPhysics::CanvasWidth, (float)h / CatPhysics::CanvasHeight);
     CatRenderer::draw(g, app.physics, app.settings, activeSkin(app));
-    {
-        std::wstring combo;
-        int shown = 0;
-        for (PhysicalKey pk : app.input.pressedOrder) {
-            if (shown >= 3) { combo += L" …"; break; }
-            if (shown > 0) combo += L" + ";
-            combo += ActionHud::keyName(pk);
-            ++shown;
-        }
-#ifdef KC_TEST_SAMPLE
-        // 录制演示用：每 0.9s 切换一种动作（仅测试构建；生产构建不定义该宏）
-        {
-            static const wchar_t* names[] = { L"左Shift", L"A", L"回车", L"鼠标右键", L"滚轮 ↑" };
-            static const wchar_t* verbs[] = { L"按下", L"按下", L"按下", L"按下", L"滚动" };
-            int step = (int)(nowSeconds() / 0.9) % 5;
-            app.actionName = names[step];
-            app.actionVerb = verbs[step];
-            app.actionTime = nowSeconds();
-            app.wheelDir = step == 4 ? 1 : 0;
-            app.wheelTime = nowSeconds();
-        }
-#endif
-        const bool hasAction = !app.actionName.empty();
-        const std::wstring shownName = hasAction ? app.actionName : std::wstring(L"等待输入");
-        const double age = hasAction ? (nowSeconds() - app.actionTime) : 99.0;   // 空闲：用大 age，走中性色 + 55% 透明
-        const double wheelAge = (app.wheelDir != 0) ? (nowSeconds() - app.wheelTime) : 99.0;
-        ActionHud::draw(g, shownName, hasAction ? app.actionVerb : std::wstring(),
-                        hasAction ? combo : std::wstring(),
-                        app.input.leftMouseDown, app.input.rightMouseDown, app.input.otherMouseDown,
-                        app.wheelDir, wheelAge, age);
-    }
 
     POINT ptDst = { wr.left, wr.top };
     SIZE szWnd = { w, h };
@@ -2201,12 +2162,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     const int myVersion = versionToNumber(APP_VERSION);
     const bool forceTakeover = commandLineHasFlag(L"--takeover");   // admin relaunch
     const bool noElevate = commandLineHasFlag(L"--no-elevate");
-#ifdef KC_TEST_INSTANCE
-    // 仅用于本机验证：避免与正在运行的旧实例抢锁（生产构建不定义该宏）
-    const wchar_t* kMutexName = L"Local\\KuroCatOwn_SingleInstance_TEST";
-#else
     const wchar_t* kMutexName = L"Local\\KuroCatOwn_SingleInstance";
-#endif
 
     // Single-instance guard. Re-launching the SAME version wakes the existing cat (cancels full
     // click-through and pops the menu so users never get stuck). Launching a NEWER version (e.g. a
@@ -2265,25 +2221,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         setAutoStartEnabled(true);
     }
 
-    app.input.onKeyDown = [&](PhysicalKey k) {
-        app.physics.triggerKeyDown(k, app.settings);
-        app.actionName = ActionHud::keyName(k);
-        app.actionVerb = L"按下";
-        app.actionTime = nowSeconds();
-    };
-    app.input.onMouseClick = [&](int btn, bool down) {
-        app.physics.triggerMouseClick(btn, down, app.settings);
-        app.actionName = btn == 0 ? L"鼠标左键" : btn == 1 ? L"鼠标右键" : L"鼠标中键";
-        app.actionVerb = down ? L"按下" : L"松开";
-        app.actionTime = nowSeconds();
-    };
-    app.input.onWheel = [&](int delta) {
-        app.actionName = delta > 0 ? L"滚轮 ↑" : L"滚轮 ↓";
-        app.actionVerb = L"滚动";
-        app.actionTime = nowSeconds();
-        app.wheelDir = delta > 0 ? 1 : -1;
-        app.wheelTime = nowSeconds();
-    };
+    app.input.onKeyDown = [&](PhysicalKey k) { app.physics.triggerKeyDown(k, app.settings); };
+    app.input.onMouseClick = [&](int btn, bool down) { app.physics.triggerMouseClick(btn, down, app.settings); };
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
@@ -2335,11 +2274,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.hwnd = CreateWindowExW(
         exStyle,
         wc.lpszClassName,
-#ifdef KC_TEST_INSTANCE
-        L"KuroCat Own TEST",
-#else
         L"KuroCat Own",
-#endif
         WS_POPUP,
         initX, initY, initW, initH,
         nullptr, nullptr, hInst, nullptr

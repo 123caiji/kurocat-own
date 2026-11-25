@@ -5,9 +5,9 @@
 
 ## 🎬 演示
 
-| 转头 / 眨眼 / 尾巴 | 操作信息条（键名 · 组合键 · 鼠标三键 · 滚轮） |
-|---|---|
-| <img src="docs/media/demo-idle.gif" width="360" alt="KuroCat Own 转头眨眼" /> | <img src="docs/media/demo-info.gif" width="360" alt="KuroCat Own 操作信息条" /> |
+| 转头 / 眨眼 / 尾巴 |
+|---|
+| <img src="docs/media/demo-idle.gif" width="360" alt="KuroCat Own 转头眨眼" /> |
 
 > 两张动图都是从**本工程编译产物**的真实窗口逐帧抓的（`tools/capture.exe` + `tools/img.mjs`，零依赖），不是上游素材。
 
@@ -27,7 +27,6 @@
 | | 能力 | 说明 |
 |---|---|---|
 | ⌨️ | **打字实时反馈** | 全局键盘监听（Raw Input 硬件扫描码），任意窗口 / 游戏都能看到猫爪敲键、键帽亮起 |
-| 🏷️ | **操作信息条（P0 新增）** | 猫头顶常驻显示：键名、组合键、鼠标 L/R/M 状态灯、滚轮方向；空闲显示「等待输入」 |
 | 🖱️ | **鼠标跟手** | 左右中键分别响应；光标移动时猫头做 2.5D 转头、瞳孔跟随 |
 | 🎨 | **数据驱动皮肤** | `.kurocat` 是 JSON 描述的毛色 / 花纹 / 体型数据，不是贴图；改 JSON 就换猫 |
 | 👗 | **换装间** | 右键小猫 →「猫咪皮肤」切换；把 `.kurocat` 拖进换装间即可导入 |
@@ -100,10 +99,15 @@ kurocat-own/
 - **[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)** —— DSH 桌宠生态调研（dsh-pet / dsh-desktop-pet / Live2D 系）+ 差距、美观与实用优化清单、阶段计划与验收线
 - **[docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md)** —— **248 个 DSH 桌宠包的功能全景（8 大类）+ 取舍矩阵 + 赛道空白确认**
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 协作约定：**只写 C++17、零新增依赖、隐私红线**
-- **[docs/P0-V1-NOTES.md](docs/P0-V1-NOTES.md)** —— **P0-V1 实施记录：操作信息条 + 关闭上游更新通道（含性能/安全实测与回滚步骤）**
+- **[docs/PLAN-20261125.md](docs/PLAN-20261125.md)** —— **自有功能与视觉方向规划（键帽气泡为主线、DSH 状态联动、KPM 角标、设置面板…）**
 - **[docs/CHANGELOG.md](docs/CHANGELOG.md)** —— 版本与变更记录（含回滚 tag 对照）
 
-## 📄 许可与来源
+## 🙏 致谢与来源
 
-MIT。本工程是 **chanke17/KuroCat** 的自有分支，来源、改动与署名见 [NOTICE.md](NOTICE.md)；皮肤阵容参考 **qianyiai/kurocat**。
-原始版权与许可全文见 [LICENSE](LICENSE)。
+本项目的**猫形象、部分渲染与输入代码、4 款基础皮肤**来自这两个开源仓库（均 MIT）：
+
+- [**chanke17/KuroCat**](https://github.com/chanke17/KuroCat)（v1.4.0）—— Windows/Win32 原生实现、2.5D 转头、Raw Input 采集、皮肤格式
+- [**qianyiai/kurocat**](https://github.com/qianyiai/kurocat)（v5.1.0）—— 皮肤阵容与配色参考（布偶 / 三花 / 奶牛三款由本项目据其设定重新实现）
+
+除此之外的**功能、交互、视觉方向与后续演进**均由本项目自行负责。
+MIT 许可要求保留原始版权声明，全文见 [LICENSE](LICENSE)，改动摘要见 [NOTICE.md](NOTICE.md)。
