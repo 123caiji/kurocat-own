@@ -368,6 +368,11 @@ public:
 
     /// DSH 状态联动：0=思考 1=干活 2=完成 3=出错（-1=无状态，回到普通模式）
     void triggerDshState(int state, const CatSettings& settings) {
+        if (getenv("KC_STATE_LOG")) {
+            static FILE* lf = nullptr;
+            if (!lf) lf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\state-hit.log", "a");
+            if (lf) { fprintf(lf, "%llu state=%d\n", (unsigned long long)GetTickCount64(), state); fflush(lf); }
+        }
         if (state < 0) {
             pupilScale.target = 1.0f;
             return;

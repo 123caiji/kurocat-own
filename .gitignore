@@ -15,3 +15,8 @@ dist/patch-preview.txt
 dist/kc-*.exe
 dist/frames*dist/*.cmd
 dist/*.txt
+
+dist/state.json
+dist/state-hit.log
+dist/tama-live.bmp
+dist/cmp-*.bmp

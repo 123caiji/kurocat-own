@@ -14,7 +14,7 @@ static BOOL CALLBACK cb(HWND h, LPARAM) {
     CloseHandle(hp);
     const wchar_t* name = wcsrchr(exe, L'\\');
     name = name ? name + 1 : exe;
-    if (_wcsnicmp(name, L"kurocat-own", 11) == 0 || _wcsnicmp(name, L"kc-", 3) == 0) {
+    if (_wcsnicmp(name, L"tama", 4) == 0 || _wcsnicmp(name, L"kurocat-own", 11) == 0 || _wcsnicmp(name, L"kc-", 3) == 0) {
         PostMessageW(h, WM_REQUEST_QUIT, 0, 0);
         PostMessageW(h, WM_CLOSE, 0, 0);
         printf("posted %ls\n", name);
