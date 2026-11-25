@@ -64,7 +64,7 @@ struct CatSettings {
 
     void loadFromRegistry() {
         HKEY hKey = nullptr;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\KuroCatOwn", 0, KEY_READ, &hKey) != ERROR_SUCCESS) return;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Tama", 0, KEY_READ, &hKey) != ERROR_SUCCESS) return;
         auto readDword = [&](const wchar_t* name, DWORD defVal) -> DWORD {
             DWORD val = defVal, sz = sizeof(val);
             if (RegQueryValueExW(hKey, name, nullptr, nullptr, (LPBYTE)&val, &sz) == ERROR_SUCCESS) return val;
@@ -113,7 +113,7 @@ struct CatSettings {
 
     void saveToRegistry() const {
         HKEY hKey = nullptr;
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\KuroCatOwn", 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS) return;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tama", 0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) != ERROR_SUCCESS) return;
         auto writeDword = [&](const wchar_t* name, DWORD val) {
             RegSetValueExW(hKey, name, 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
         };
@@ -364,6 +364,28 @@ public:
         if (modAlt_) { if (!p.empty()) p += L"+"; p += L"Alt"; }
         if (modWin_) { if (!p.empty()) p += L"+"; p += L"Win"; }
         return p;
+    }
+
+    /// DSH 状态联动：0=思考 1=干活 2=完成 3=出错（-1=无状态，回到普通模式）
+    void triggerDshState(int state, const CatSettings& settings) {
+        if (state < 0) {
+            pupilScale.target = 1.0f;
+            return;
+        }
+        sleepiness = 0.0f;
+        switch (state) {
+            case 0: pupilScale.target = 1.06f; headTilt.target = 0.10f; break;   // 思考：微微歪头
+            case 1: pupilScale.target = 1.12f; bodySquash.velocity -= 0.9f; break; // 干活：抖一下
+            case 2: pupilScale.target = 1.18f; earTwitch.velocity += 3.2f; break;  // 完成：耳朵抖
+            case 3: pupilScale.target = 0.92f; earTwitch.velocity -= 3.0f; break;  // 出错：耳朵垂
+            default: break;
+        }
+        if (!settings.showKeyBadges) return;
+        static const wchar_t* textsZh[] = { L"思考中…", L"干活中…", L"完成!", L"出错了" };
+        static const wchar_t* textsEn[] = { L"thinking", L"working", L"done", L"error" };
+        const wchar_t* label = settings.isEnglish ? textsEn[state] : textsZh[state];
+        Pt pt = { CanvasWidth * 0.5f, 92.0f };
+        spawnFloatingKeycap(label, pt, nowSeconds(), 5 + state);
     }
 
     /// 滚轮：在鼠标位置弹一颗方向键帽

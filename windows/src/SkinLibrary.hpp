@@ -1,5 +1,5 @@
 #pragma once
-// Imported `.kurocat` skins live in %APPDATA%\KuroCatOwn\skins, one file per skin named <content-hash>.kurocat.
+// Imported `.kurocat` skins live in %APPDATA%\Tama\skins, one file per skin named <content-hash>.kurocat.
 // Built-in coats are not stored here.
 #include <windows.h>
 #include <shlobj.h>
@@ -21,10 +21,10 @@ struct SkinLibrary {
 
     static std::wstring baseDir() {
         wchar_t path[MAX_PATH] = {0};
-        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, path)) && path[0]) return std::wstring(path) + L"\\KuroCatOwn";
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, path)) && path[0]) return std::wstring(path) + L"\\Tama";
         wchar_t env[MAX_PATH] = {0};
         DWORD n = GetEnvironmentVariableW(L"APPDATA", env, MAX_PATH);
-        return (n > 0 && n < MAX_PATH ? std::wstring(env) : std::wstring(L".")) + L"\\KuroCatOwn";
+        return (n > 0 && n < MAX_PATH ? std::wstring(env) : std::wstring(L".")) + L"\\Tama";
     }
     static std::wstring dir() { return baseDir() + L"\\skins"; }
 
@@ -82,7 +82,7 @@ struct SkinLibrary {
     void reload() {
         skins.clear();
         scanDir(portableDir(), skins);   // 1) 随包分发（exe 同目录 skins\）
-        scanDir(dir(), skins);           // 2) 用户导入（%APPDATA%\KuroCatOwn\skins）
+        scanDir(dir(), skins);           // 2) 用户导入（%APPDATA%\Tama\skins）
         std::sort(skins.begin(), skins.end(), [](const SkinSpec& a, const SkinSpec& b) { return a.name < b.name; });
     }
 
@@ -97,11 +97,11 @@ struct SkinLibrary {
         if (!readFile(path, bytes, error)) return false;
         SkinSpec spec;
         if (!SkinSpec::parse(bytes, spec, error)) return false;
-        if (!ensureDir()) { error = "无法创建皮肤文件夹 %APPDATA%\\KuroCatOwn\\skins"; return false; }
+        if (!ensureDir()) { error = "无法创建皮肤文件夹 %APPDATA%\\Tama\\skins"; return false; }
         std::wstring target = dir() + L"\\" + utf8ToWide(spec.id) + L".kurocat";
         std::wstring tmp = target + L".tmp";
         HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) { error = "无法写入皮肤文件夹 %APPDATA%\\KuroCatOwn\\skins"; return false; }
+        if (h == INVALID_HANDLE_VALUE) { error = "无法写入皮肤文件夹 %APPDATA%\\Tama\\skins"; return false; }
         DWORD written = 0;
         BOOL ok = WriteFile(h, bytes.data(), (DWORD)bytes.size(), &written, nullptr) && written == bytes.size();
         ok = CloseHandle(h) && ok;

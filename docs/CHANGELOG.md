@@ -2,6 +2,20 @@
 
 > 回滚锚点：每个版本都留了 git tag，可直接 `git reset --hard <tag>`。
 
+## [v0.2 · Tama] · 2026-11-25
+
+**品牌**
+- 项目更名为 **Tama**：窗口标题、托盘、注册表 `HKCU\\Software\\Tama`、单实例锁 `Local\\Tama_SingleInstance`、数据目录 `%APPDATA%\\Tama\\`、自启键值、类名、exe 名（`tama.exe`）、脚本（`build.cmd` / `run.cmd`）
+- 安全：上游更新域名替换为 `disabled.invalid`（原通道已禁用，双保险）
+
+**新增**
+- **DSH 状态联动**：每 150ms 读 `state.json`，思考/干活/完成/出错 → 猫的表情与气泡；协议见 [DSH-STATE-BRIDGE.md](DSH-STATE-BRIDGE.md)
+
+**回滚**
+```bat
+git reset --hard f1-keycaps
+```
+
 ## [F1-键帽气泡] · 2026-11-25
 
 **新增 / 重做**

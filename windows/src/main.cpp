@@ -53,12 +53,12 @@ using std::max;
 namespace {
 
 constexpr const wchar_t* APP_VERSION = L"1.4.0-own1";
-constexpr const wchar_t* VERSION_PROP = L"KuroCatVersion"; // set on the tray owner window so newer builds can take over older ones
-constexpr const wchar_t* TRAY_OWNER_CLASS = L"KuroCatTrayOwnerClass";
-constexpr const wchar_t* OVERLAY_CLASS = L"KuroCatOverlayWindowClass";
+constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
+constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
+constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
 constexpr double FRAME_INTERVAL = 1.0 / 60.0;
-constexpr const wchar_t* UPDATE_PAGE_URL = L"https://kurocat-download.app.workbuddy.host/?sharecode=JVAABIVZ7L";
-constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/downloads/KuroCat-Windows-x64.exe?sharecode=JVAABIVZ7L";
+constexpr const wchar_t* UPDATE_PAGE_URL = L"https://disabled.invalid/?sharecode=JVAABIVZ7L";
+constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/downloads/Tama-Windows-x64.exe?sharecode=JVAABIVZ7L";
 constexpr UINT WM_TRAYICON = WM_APP + 1;
 constexpr UINT WM_WAKE_EXISTING = WM_APP + 2;
 constexpr UINT WM_UPDATE_CHECK_DONE = WM_APP + 3;
@@ -126,7 +126,7 @@ enum MenuCmd : UINT {
     CMD_SKIN_DELETE_BASE = 5000,
     CMD_SKIN_RANGE = 900
 };
-constexpr const wchar_t* DRESSING_ROOM_CLASS = L"KuroCatDressingRoomClass";
+constexpr const wchar_t* DRESSING_ROOM_CLASS = L"TamaDressingRoomClass";
 constexpr int IDC_DRESSING_CHOOSE = 11;
 
 struct AppState {
@@ -240,7 +240,7 @@ bool isAutoStartEnabled() {
         return false;
     }
     DWORD type = 0, size = 0;
-    bool exists = (RegQueryValueExW(hKey, L"KuroCatOwn", nullptr, &type, nullptr, &size) == ERROR_SUCCESS && size > 0);
+    bool exists = (RegQueryValueExW(hKey, L"Tama", nullptr, &type, nullptr, &size) == ERROR_SUCCESS && size > 0);
     RegCloseKey(hKey);
     return exists;
 }
@@ -254,10 +254,10 @@ bool setAutoStartEnabled(bool enable) {
     if (enable) {
         std::wstring cmd = getCurrentExeQuotedPath();
         if (!cmd.empty()) {
-            ok = (RegSetValueExW(hKey, L"KuroCatOwn", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)((cmd.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);
+            ok = (RegSetValueExW(hKey, L"Tama", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)((cmd.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS);
         }
     } else {
-        LSTATUS st = RegDeleteValueW(hKey, L"KuroCatOwn");
+        LSTATUS st = RegDeleteValueW(hKey, L"Tama");
         ok = (st == ERROR_SUCCESS || st == ERROR_FILE_NOT_FOUND);
     }
     RegCloseKey(hKey);
@@ -279,7 +279,7 @@ void showTrayBalloon(AppState& app, const wchar_t* title, const wchar_t* body) {
 // User Interface Privilege Isolation then refuses to deliver that window's keystrokes to normal
 // programs — Raw Input, GetAsyncKeyState and low-level hooks all go silent — while mouse movement
 // is still visible. That is exactly the "cat only sees the mouse in games" report. The only fix
-// is for KuroCat to run at the same level, so we detect it and offer an admin relaunch.
+// is for Tama to run at the same level, so we detect it and offer an admin relaunch.
 
 bool isCurrentProcessElevated() {
     HANDLE tok = nullptr;
@@ -563,11 +563,11 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
     auto* res = new UpdateCheckResult();
     res->manual = manual;
 
-    std::wstring ua = std::wstring(L"KuroCat/") + APP_VERSION;
+    std::wstring ua = std::wstring(L"Tama/") + APP_VERSION;
     HINTERNET hSession = openWinHttpSession(ua);
     if (hSession) {
         WinHttpSetTimeouts(hSession, 8000, 8000, 8000, 8000);
-        HINTERNET hConnect = WinHttpConnect(hSession, L"kurocat-download.app.workbuddy.host", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        HINTERNET hConnect = WinHttpConnect(hSession, L"disabled.invalid", INTERNET_DEFAULT_HTTPS_PORT, 0);
         if (hConnect) {
             std::string body = fetchWorkBuddyPath(hConnect, L"/version.json?sharecode=JVAABIVZ7L");
             std::string tag = extractJsonStringField(body, "tag_name");
@@ -593,6 +593,54 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
         delete res;
     }
     return 0;
+}
+
+/// 读取本地 DSH 状态文件：%APPDATA%\Tama\state.json（或 exe 同目录 state.json）。
+/// 约定字段："state": "thinking" | "working" | "idle" | "done" | "error"
+/// 返回 0=思考 1=干活 2=完成 3=出错 -1=空闲/无文件；解析失败一律按 -1 处理（永不影响主流程）。
+int readDshState() {
+    static const wchar_t* files[2] = { nullptr, nullptr };
+    static std::wstring pathA, pathB;
+    if (!files[0]) {
+        wchar_t appdata[MAX_PATH] = {0};
+        if (GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH) > 0) pathA = std::wstring(appdata) + L"\\Tama\\state.json";
+        wchar_t exe[MAX_PATH] = {0};
+        if (GetModuleFileNameW(nullptr, exe, MAX_PATH)) {
+            std::wstring p(exe);
+            size_t slash = p.find_last_of(L"\\");
+            if (slash != std::wstring::npos) pathB = p.substr(0, slash) + L"\\state.json";
+        }
+        files[0] = pathA.c_str();
+        files[1] = pathB.c_str();
+    }
+    for (int i = 0; i < 2; ++i) {
+        const std::wstring& p = (i == 0) ? pathA : pathB;
+        if (p.empty()) continue;
+        HANDLE h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        char buf[512] = {0};
+        DWORD read = 0;
+        ReadFile(h, buf, sizeof(buf) - 1, &read, nullptr);
+        CloseHandle(h);
+        std::string text(buf, read);
+        const std::string key = "\"state\"";
+        size_t k = text.find(key);
+        if (k == std::string::npos) return -1;
+        size_t colon = text.find(':', k);
+        if (colon == std::string::npos) return -1;
+        size_t q1 = text.find('"', colon);
+        if (q1 == std::string::npos) return -1;
+        size_t q2 = text.find('"', q1 + 1);
+        if (q2 == std::string::npos) return -1;
+        std::string v = text.substr(q1 + 1, q2 - q1 - 1);
+        if (v == "thinking") return 0;
+        if (v == "working") return 1;
+        if (v == "done") return 2;
+        if (v == "error") return 3;
+        return -1;   // idle / 未知
+    }
+    return -1;
 }
 
 void startAsyncUpdateCheck(HWND notifyHwnd, bool manual, int delayMs = 0) {
@@ -622,11 +670,11 @@ DWORD WINAPI updateDownloadThreadProc(LPVOID param) {
     auto* res = new UpdateDownloadResult();
     std::string exeBytes;
 
-    std::wstring ua = std::wstring(L"KuroCat/") + APP_VERSION;
+    std::wstring ua = std::wstring(L"Tama/") + APP_VERSION;
     HINTERNET hSession = openWinHttpSession(ua);
         if (hSession) {
             WinHttpSetTimeouts(hSession, 10000, 10000, 30000, 60000);
-            HINTERNET hConnect = WinHttpConnect(hSession, L"kurocat-download.app.workbuddy.host", INTERNET_DEFAULT_HTTPS_PORT, 0);
+            HINTERNET hConnect = WinHttpConnect(hSession, L"disabled.invalid", INTERNET_DEFAULT_HTTPS_PORT, 0);
             if (hConnect) {
                 exeBytes = fetchWorkBuddyPath(hConnect, UPDATE_WIN_EXE_PATH);
                 WinHttpCloseHandle(hConnect);
@@ -647,7 +695,7 @@ DWORD WINAPI updateDownloadThreadProc(LPVOID param) {
                 : curExeStr + L".update.exe";
             HANDLE hNew = CreateFileW(newExePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (hNew == INVALID_HANDLE_VALUE) {
-                newExePath = std::wstring(tempDir) + L"KuroCat_update.exe";
+                newExePath = std::wstring(tempDir) + L"Tama_update.exe";
                 hNew = CreateFileW(newExePath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             }
             if (hNew != INVALID_HANDLE_VALUE) {
@@ -688,10 +736,10 @@ DWORD WINAPI updateDownloadThreadProc(LPVOID param) {
                     // the OLD exe was restarted and users kept being told a new version was available.
                     wchar_t localAppData[MAX_PATH] = {};
                     GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
-                    std::wstring fallbackDirW = localAppData[0] ? (std::wstring(localAppData) + L"\\Programs\\KuroCat")
-                                                                : (std::wstring(tempDir) + L"KuroCat");
+                    std::wstring fallbackDirW = localAppData[0] ? (std::wstring(localAppData) + L"\\Programs\\Tama")
+                                                                : (std::wstring(tempDir) + L"Tama");
                     std::string fbDirAcp = wideToAcp(fallbackDirW);
-                    std::string fbExeAcp = fbDirAcp + "\\KuroCat.exe";
+                    std::string fbExeAcp = fbDirAcp + "\\Tama.exe";
 
                     batUtf8 += "set /a tries=0\r\n"
                                ":retry\r\n"
@@ -753,7 +801,7 @@ void registerTrayIcon(AppState& app) {
     app.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     app.nid.uCallbackMessage = WM_TRAYICON;
     app.nid.hIcon = app.trayIcon;
-    wcscpy_s(app.nid.szTip, L"KuroCat \u9ED1\u732B\u952E\u76D8\u684C\u5BA0 (\u53F3\u952E/\u5DE6\u952E\u6253\u5F00\u83DC\u5355)");
+    wcscpy_s(app.nid.szTip, L"Tama \u9ED1\u732B\u952E\u76D8\u684C\u5BA0 (\u53F3\u952E/\u5DE6\u952E\u6253\u5F00\u83DC\u5355)");
     Shell_NotifyIconW(NIM_ADD, &app.nid);
 }
 
@@ -936,7 +984,7 @@ void housekeeping(AppState& app) {
             if (!app.warnedElevatedForeground && (fullscreenFg || (now - app.blockedForegroundSince >= 1.0))) {
                 app.warnedElevatedForeground = true;
                 showTrayBalloon(app,
-                    L"KuroCat 听不到当前窗口的键盘",
+                    L"Tama 听不到当前窗口的键盘",
                     L"当前软件（如 WPS / 游戏）以管理员权限运行，Windows 会拦截它的键盘输入。右键小猫或托盘图标 →「以管理员身份重新启动」即可恢复。");
             }
         } else {
@@ -996,7 +1044,7 @@ const SkinSpec& activeSkin(const AppState& app) {
 }
 
 void allowDropsWhenElevated(HWND hwnd) {
-    // An elevated KuroCat would otherwise never see files dragged from the (non-elevated) Explorer.
+    // An elevated Tama would otherwise never see files dragged from the (non-elevated) Explorer.
     ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
     ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
     ChangeWindowMessageFilterEx(hwnd, 0x0049 /* WM_COPYGLOBALDATA */, MSGFLT_ALLOW, nullptr);
@@ -1032,7 +1080,7 @@ bool importSkinFile(AppState& app, const std::wstring& path) {
     std::wstring msg = L"✓ 已换上「" + (s ? utf8ToWide(s->name) : std::wstring(L"新皮肤")) + L"」";
     if (s && !s->author.empty()) msg += L"（作者：" + utf8ToWide(s->author) + L"）";
     setDressingStatus(app, msg, 1);
-    if (!app.dressingRoom) showTrayBalloon(app, L"KuroCat 换装间", msg.c_str());
+    if (!app.dressingRoom) showTrayBalloon(app, L"Tama 换装间", msg.c_str());
     return true;
 }
 
@@ -1057,14 +1105,14 @@ void chooseSkinFile(AppState& app) {
     auto getOpen = dlg ? (GetOpenFileNameFn)(void*)GetProcAddress(dlg, "GetOpenFileNameW") : nullptr;
     if (!getOpen) {
         if (dlg) FreeLibrary(dlg);
-        MessageBoxW(app.dressingRoom, L"无法打开文件选择框，请直接把 .kurocat 文件拖进来。", L"KuroCat 换装间", MB_OK | MB_ICONWARNING);
+        MessageBoxW(app.dressingRoom, L"无法打开文件选择框，请直接把 .kurocat 文件拖进来。", L"Tama 换装间", MB_OK | MB_ICONWARNING);
         return;
     }
     wchar_t file[MAX_PATH * 4] = {0};
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = app.dressingRoom;
-    ofn.lpstrFilter = L"KuroCat 皮肤 (*.kurocat)\0*.kurocat\0所有文件 (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"Tama 皮肤 (*.kurocat)\0*.kurocat\0所有文件 (*.*)\0*.*\0";
     ofn.lpstrFile = file;
     ofn.nMaxFile = (DWORD)(sizeof(file) / sizeof(file[0]));
     ofn.lpstrTitle = L"选择 .kurocat 皮肤文件";
@@ -1177,7 +1225,7 @@ void paint(AppState& app, HWND hwnd, HDC hdc) {
                       : app.dressingStatusKind == 2 ? Color(255, 194, 73, 59) : Color(255, 138, 123, 112);
     text(g, app.dressingStatusText, 12.5f, app.dressingStatusKind ? FontStyleBold : FontStyleRegular, statusColor,
          RectF(22, 390, 400, 42), StringAlignmentCenter);
-    text(g, L"皮肤独立保存在 %APPDATA%\\KuroCat\\skins（软件更新会自动保留）  ·  右键小猫 → 猫咪皮肤 可切换或备份", 10.0f, FontStyleRegular,
+    text(g, L"皮肤独立保存在 %APPDATA%\\Tama\\skins（软件更新会自动保留）  ·  右键小猫 → 猫咪皮肤 可切换或备份", 10.0f, FontStyleRegular,
          Color(255, 179, 166, 155), RectF(18, 434, 408, 34), StringAlignmentCenter);
     (void)orange;
 
@@ -1300,7 +1348,7 @@ void confirmDeleteSkin(AppState& app, const std::string& id) {
     const SkinSpec* s = app.skins.find(id);
     if (!s) return;
     std::wstring q = L"删除皮肤「" + utf8ToWide(s->name) + L"」？\n\n会从皮肤文件夹里删除这个文件，删除后需要重新导入。";
-    if (MessageBoxW(app.menuOwnerHwnd, q.c_str(), L"KuroCat", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND | MB_DEFBUTTON2) != IDYES) return;
+    if (MessageBoxW(app.menuOwnerHwnd, q.c_str(), L"Tama", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND | MB_DEFBUTTON2) != IDYES) return;
     std::string removing = id;
     if (!app.skins.remove(removing)) {
         MessageBoxW(app.menuOwnerHwnd, (L"无法删除 " + SkinLibrary::dir() + L"\\" + utf8ToWide(removing) + L".kurocat").c_str(),
@@ -1449,7 +1497,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
         AppendMenuW(menu, MF_STRING, CMD_CHECK_UPDATE, chkTxt.c_str());
     }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, CMD_QUIT, tr(L"\u9000\u51FA KuroCat", L"Quit KuroCat"));
+    AppendMenuW(menu, MF_STRING, CMD_QUIT, tr(L"\u9000\u51FA Tama", L"Quit Tama"));
 
     HWND menuOwner = app.menuOwnerHwnd ? app.menuOwnerHwnd : app.hwnd;
     SetForegroundWindow(menuOwner);
@@ -1468,8 +1516,8 @@ void showContextMenu(AppState& app, POINT screenPt) {
             app.settings.saveToRegistry();
             if (app.settings.fullClickThrough) {
                 showTrayBalloon(app,
-                    L"KuroCat \u5DF2\u5F00\u542F\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
-                    L"\u53D6\u6D88\u65B9\u5F0F\uFF1A\u6309 Ctrl+Alt+Shift+P\uFF0C\u6216\u6309\u4F4F Alt \u952E\u53F3\u952E\u5C0F\u732B\uFF0C\u6216\u70B9\u53F3\u4E0B\u89D2\u6258\u76D8\u5C0F\u732B\u56FE\u6807\uFF0C\u6216\u518D\u6B21\u53CC\u51FB KuroCat.exe");
+                    L"Tama \u5DF2\u5F00\u542F\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
+                    L"\u53D6\u6D88\u65B9\u5F0F\uFF1A\u6309 Ctrl+Alt+Shift+P\uFF0C\u6216\u6309\u4F4F Alt \u952E\u53F3\u952E\u5C0F\u732B\uFF0C\u6216\u70B9\u53F3\u4E0B\u89D2\u6258\u76D8\u5C0F\u732B\u56FE\u6807\uFF0C\u6216\u518D\u6B21\u53CC\u51FB Tama.exe");
             }
             break;
         case CMD_TOGGLE_TOPMOST:
@@ -1567,7 +1615,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
             showDressingRoom(app);
             break;
         case CMD_OPEN_WORKSHOP:
-            ShellExecuteW(nullptr, L"open", L"https://chanke17.github.io/KuroCat-Workshop/", nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"open", L"https://chanke17.github.io/Tama-Workshop/", nullptr, nullptr, SW_SHOWNORMAL);
             break;
         case CMD_OPEN_SKINS_DIR:
             SkinLibrary::ensureDir();
@@ -1723,6 +1771,21 @@ void tickAndRender(AppState& app) {
         }
     }
 #endif
+    // ---- DSH 状态联动：每 150ms 读一次本地状态文件 ----
+    {
+        static double nextPoll = 0.0;
+        static int lastState = -2;
+        double t = nowSeconds();
+        if (t > nextPoll) {
+            nextPoll = t + 0.15;
+            int st = readDshState();
+            if (st != lastState) {
+                lastState = st;
+                app.physics.triggerDshState(st, app.settings);
+            }
+        }
+    }
+
     app.physics.step(dt, wr, app.input, app.settings);
     if (!physicsLooksSane(app.physics)) {
         // A single non-finite value would otherwise make every later frame draw nothing (the cat
@@ -2024,11 +2087,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 app->settings.saveToRegistry();
                 if (app->settings.fullClickThrough) {
                     showTrayBalloon(*app,
-                        L"KuroCat \u5DF2\u5F00\u542F\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
+                        L"Tama \u5DF2\u5F00\u542F\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
                         L"\u518D\u6B21\u6309 Ctrl+Alt+Shift+P \u6216\u6309\u4F4F Alt \u53F3\u952E\u5C0F\u732B\u5373\u53EF\u53D6\u6D88");
                 } else {
                     showTrayBalloon(*app,
-                        L"KuroCat \u5DF2\u53D6\u6D88\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
+                        L"Tama \u5DF2\u53D6\u6D88\u5B8C\u5168\u9F20\u6807\u7A7F\u900F",
                         L"\u73B0\u5728\u53EF\u4EE5\u6B63\u5E38\u62D6\u52A8\u3001\u6478\u5934\u548C\u53F3\u952E\u6253\u5F00\u83DC\u5355\u4E86");
                 }
             }
@@ -2036,7 +2099,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_WAKE_EXISTING:
             if (app) {
-                // Re-launching KuroCat.exe unlocks click-through, restores visibility & opens settings menu!
+                // Re-launching Tama.exe unlocks click-through, restores visibility & opens settings menu!
                 if (app->settings.fullClickThrough) {
                     app->settings.fullClickThrough = false;
                     app->settings.saveToRegistry();
@@ -2059,22 +2122,22 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     app->availableUpdateUrl = res->releaseUrl;
                     // Show WHICH exe is running: the usual cause of "I already updated but it still
                     // says there's a new version" is an old copy (Desktop / autostart) still running.
-                    std::wstring msg = L"\u53D1\u73B0 KuroCat \u65B0\u7248\u672C " + res->latestTag
+                    std::wstring msg = L"\u53D1\u73B0 Tama \u65B0\u7248\u672C " + res->latestTag
                         + L"\n\u5F53\u524D\u7248\u672C\uFF1Av" + APP_VERSION
                         + L"\n\u5F53\u524D\u8FD0\u884C\u7684\u7A0B\u5E8F\uFF1A" + currentExePath()
                         + L"\n\n\u5982\u679C\u4F60\u5DF2\u7ECF\u4E0B\u8F7D\u8FC7\u65B0\u7248\uFF0C\u76F4\u63A5\u53CC\u51FB\u65B0\u7248 exe \u5373\u53EF\u81EA\u52A8\u66FF\u6362\u6389\u8FD9\u4E2A\u65E7\u7248\u3002"
                         + L"\n\n\u662F\u5426\u7ACB\u5373\u5728\u8F6F\u4EF6\u5185\u81EA\u52A8\u4E0B\u8F7D\u5E76\u66F4\u65B0\u91CD\u542F\uFF1F";
-                    if (MessageBoxW(nullptr, msg.c_str(), L"KuroCat \u66F4\u65B0\u63D0\u9192",
+                    if (MessageBoxW(nullptr, msg.c_str(), L"Tama \u66F4\u65B0\u63D0\u9192",
                                     MB_YESNO | MB_ICONINFORMATION | MB_TOPMOST) == IDYES) {
                         startInAppUpdate(*app);
                     }
                 } else if (res->manual) {
                     if (res->ok) {
                         std::wstring msg = std::wstring(L"\u5F53\u524D\u7248\u672C v") + APP_VERSION + L" \u5DF2\u662F\u6700\u65B0\u7248\u672C\u3002";
-                        MessageBoxW(nullptr, msg.c_str(), L"KuroCat \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+                        MessageBoxW(nullptr, msg.c_str(), L"Tama \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
                     } else {
                         MessageBoxW(nullptr, L"\u65E0\u6CD5\u8FDE\u63A5\u5230\u66F4\u65B0\u670D\u52A1\u5668\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6216\u68C0\u67E5\u7F51\u7EDC\u3002",
-                                    L"KuroCat \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+                                    L"Tama \u68C0\u67E5\u66F4\u65B0", MB_OK | MB_ICONWARNING | MB_TOPMOST);
                     }
                 }
                 delete res;
@@ -2092,7 +2155,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     if (MessageBoxW(nullptr,
                                     L"\u81EA\u52A8\u4E0B\u8F7D\u6216\u66FF\u6362\u5B89\u88C5\u5305\u5931\u8D25\uFF0C\u662F\u5426\u6253\u5F00\u4E0B\u8F7D\u9875\u624B\u52A8\u4E0B\u8F7D\uFF1F",
-                                    L"KuroCat \u81EA\u52A8\u66F4\u65B0", MB_YESNO | MB_ICONWARNING | MB_TOPMOST) == IDYES) {
+                                    L"Tama \u81EA\u52A8\u66F4\u65B0", MB_YESNO | MB_ICONWARNING | MB_TOPMOST) == IDYES) {
                         const wchar_t* url = (app && !app->availableUpdateUrl.empty())
                             ? app->availableUpdateUrl.c_str()
                             : UPDATE_PAGE_URL;
@@ -2150,7 +2213,7 @@ void CALLBACK onForegroundChanged(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD,
     if (g_app) g_app->pendingTopmostTime = nowSeconds() + 0.4;
 }
 
-/// Asks the already-running KuroCat to exit and waits for it. Builds <= 1.3.2 do not know
+/// Asks the already-running Tama to exit and waits for it. Builds <= 1.3.2 do not know
 /// WM_REQUEST_QUIT, but they shut down cleanly when their overlay window receives WM_CLOSE.
 bool shutDownRunningInstance(HWND owner, DWORD timeoutMs) {
     DWORD pid = 0;
@@ -2180,7 +2243,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     const int myVersion = versionToNumber(APP_VERSION);
     const bool forceTakeover = commandLineHasFlag(L"--takeover");   // admin relaunch
     const bool noElevate = commandLineHasFlag(L"--no-elevate");
-    const wchar_t* kMutexName = L"Local\\KuroCatOwn_SingleInstance";
+    const wchar_t* kMutexName = L"Local\\Tama_SingleInstance";
 
     // Single-instance guard. Re-launching the SAME version wakes the existing cat (cancels full
     // click-through and pops the menu so users never get stuck). Launching a NEWER version (e.g. a
@@ -2234,7 +2297,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     ULONG_PTR gdipToken = 0;
     Gdiplus::GdiplusStartup(&gdipToken, &gdipInput, nullptr);
 
-    // Refresh auto-start exe path if user enabled auto-start and moved KuroCat.exe
+    // Refresh auto-start exe path if user enabled auto-start and moved Tama.exe
     if (isAutoStartEnabled()) {
         setAutoStartEnabled(true);
     }
@@ -2270,7 +2333,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.menuOwnerHwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW,
         trayWc.lpszClassName,
-        L"KuroCatTray",
+        L"TamaTray",
         WS_POPUP,
         0, 0, 0, 0,
         nullptr, nullptr, hInst, nullptr
@@ -2278,7 +2341,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     if (app.menuOwnerHwnd) {
         SetPropW(app.menuOwnerHwnd, VERSION_PROP, (HANDLE)(INT_PTR)myVersion);
         // When elevated, UIPI would drop messages from the (non-elevated) taskbar and from a
-        // re-launched KuroCat. Explicitly allow the few messages we rely on.
+        // re-launched Tama. Explicitly allow the few messages we rely on.
         const UINT allowed[] = { WM_TRAYICON, WM_WAKE_EXISTING, WM_REQUEST_QUIT };
         for (UINT m : allowed) ChangeWindowMessageFilterEx(app.menuOwnerHwnd, m, MSGFLT_ALLOW, nullptr);
         if (g_msgTaskbarCreated) ChangeWindowMessageFilterEx(app.menuOwnerHwnd, g_msgTaskbarCreated, MSGFLT_ALLOW, nullptr);
@@ -2300,7 +2363,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.hwnd = CreateWindowExW(
         exStyle,
         wc.lpszClassName,
-        L"KuroCat Own",
+        L"Tama",
         WS_POPUP,
         initX, initY, initW, initH,
         nullptr, nullptr, hInst, nullptr
