@@ -33,3 +33,7 @@ dist/t-*.bmp
 dist/drag-physics.log
 dist/drag.log
 dist/f_drag*
+dist/frame-*.bmp
+dist/look.png
+dist/f_*
+dist/*.png
