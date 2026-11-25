@@ -250,6 +250,8 @@ public:
     float scruffDragAccumY_ = 0.0f;
     float scruffHoldTime_ = 0.0f;
     float scruffDropTimer_ = 0.0f;
+public:
+    float scruffStartle = 0.0f;   // 0..1：被拎起瞬间的瞪眼强度（渲染用）
     float fastMouseDuration_ = 0.0f;
     float dizzyTimer_ = 0.0f;
     Spring2D mouseOffset{{0.0f, 0.0f}};
@@ -682,6 +684,15 @@ public:
         scruffSwingY.step(dt, 108.0f, 8.4f);
         scruffTailSwing.step(dt, 58.0f, 5.2f);
         float scruff = std::clamp(scruffDrag.value, 0.0f, 1.0f);
+
+        if (scruff > 0.3f) pupilScale.target = std::max(pupilScale.target, 1.10f + 0.18f * scruffStartle);
+        // 刚被拎起 / 刚落地时的瞪眼（对齐作者的 startle）
+        if (isScruffDragging_) {
+            if (scruffHoldTime_ < 0.14f) scruffStartle = 1.0f;
+            else scruffStartle = std::max(0.0f, 1.0f - (scruffHoldTime_ - 0.14f) / 0.08f);
+        } else {
+            scruffStartle = (scruffDropTimer_ > 0.01f) ? std::min(1.0f, scruffDropTimer_ / 0.12f) : 0.0f;
+        }
 
         lieIntensity.target = (!isScruffDragging_ && dizzyTimer_ <= 0.0f && sleepiness > 0.65f)
             ? std::min(1.0f, (sleepiness - 0.65f) / 0.30f) : 0.0f;

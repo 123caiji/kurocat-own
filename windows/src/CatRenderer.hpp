@@ -184,13 +184,26 @@ public:
                 drawParkedStylus(g, settings.keyboardTheme, settings.eyeTheme);
             }
         } else {
-            drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { drawMouse(lg, physics, settings.keyboardTheme); });
+            drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawMouse(lg, physics, settings.keyboardTheme); lg.Restore(dsk); });
         }
 
         // 2. Mini 65% Mechanical Keyboard (facing cat) + Backlit Glow
-        drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { drawKeyboard(lg, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee); });
+        drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawKeyboard(lg, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee); lg.Restore(dsk); });
 
-        GraphicsState fallState = g.Save();
+        // 悬空拉伸 + 掉落姿态：先 Save，再统一变换，最后 Restore
+        GraphicsState hangState = g.Save();
+        if (scruff > 0.02f) {
+            float stretch = 1.0f + scruffS * 0.10f;
+            g.TranslateTransform(seatX, seatY);
+            g.ScaleTransform(1.0f - scruffS * 0.03f, stretch);
+            g.RotateTransform(physics.scruffSwing.value * 3.5f * scruffS);
+            g.TranslateTransform(-seatX, -seatY);
+        }
+        if (dizzy > 0.01f) {
+            g.TranslateTransform(seatX + fallShiftX, seatY + fallShiftY);
+            g.RotateTransform(fallAngle * RadToDeg);
+            g.TranslateTransform(-seatX, -seatY);
+        }
         if (dizzy > 0.01f) {
             g.TranslateTransform(seatX + fallShiftX, seatY + fallShiftY);
             g.RotateTransform(fallAngle * RadToDeg);
@@ -238,7 +251,8 @@ public:
             drawTail(g, seatX, seatY, physics, skin);
         }
 
-        g.Restore(fallState);
+        g.Restore(hangState);   // 结束悬空拉伸变换（fallState 已在此之前恢复）
+
 
         // Upright orbiting golden dizzy stars floating right above the head (appear FIRST before falling!)
         if (dizzy > 0.10f) {
