@@ -13,4 +13,5 @@ dist/backup/
 dist/patch-preview.txt
 
 dist/kc-*.exe
-dist/frames*
+dist/frames*dist/*.cmd
+dist/*.txt
