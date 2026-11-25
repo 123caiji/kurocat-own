@@ -43,6 +43,7 @@ public:
     std::function<void(PhysicalKey)> onKeyDown;
     std::function<void(PhysicalKey)> onKeyUp;
     std::function<void(int, bool)> onMouseClick;
+    std::function<void(int)> onWheel;   // 滚轮增量（±120），供操作信息条显示方向
 
     static inline InputEngine* s_hookInstance = nullptr;
 
@@ -221,7 +222,10 @@ public:
             if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)    updateMouseButton(1, false);
             if (m.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN) updateMouseButton(2, true);
             if (m.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)   updateMouseButton(2, false);
-            if (m.usButtonFlags & RI_MOUSE_WHEEL)              lastMouseMoveTime = now;
+            if (m.usButtonFlags & RI_MOUSE_WHEEL) {
+                lastMouseMoveTime = now;
+                if (onWheel) onWheel((int)(short)m.usButtonData);
+            }
         } else if (raw->header.dwType == RIM_TYPEHID) {
             double now = nowSeconds();
             lastTabletEventTime_ = now;

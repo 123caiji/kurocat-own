@@ -7,3 +7,6 @@ windows/*.res
 windows/*.obj
 tools/*.exe
 *.tar
+
+dist/backup/
+*.update.exe

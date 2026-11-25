@@ -94,6 +94,7 @@ kurocat-own/
 - **[docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md)** —— DSH 桌宠生态调研（dsh-pet / dsh-desktop-pet / Live2D 系）+ 差距、美观与实用优化清单、阶段计划与验收线
 - **[docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md)** —— **248 个 DSH 桌宠包的功能全景（8 大类）+ 取舍矩阵 + 赛道空白确认**
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 协作约定：**只写 C++17、零新增依赖、隐私红线**
+- **[docs/P0-V1-NOTES.md](docs/P0-V1-NOTES.md)** —— **P0-V1 实施记录：操作信息条 + 关闭上游更新通道（含性能/安全实测与回滚步骤）**
 
 ## 📄 许可与来源
 
