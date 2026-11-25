@@ -111,6 +111,7 @@ tama/
 
 ## 🗺️ 文档
 
+- **[docs/PLAN-2026Q4.md](docs/PLAN-2026Q4.md)** —— **产品规划（定位 / 5 个方向 / 12 周路线 / 验收线）**
 - [docs/CHANGELOG.md](docs/CHANGELOG.md) —— 变更与回滚 tag
 - [docs/PLAN-20261125.md](docs/PLAN-20261125.md)
 - [docs/UPSTREAM-DIFF.md](docs/UPSTREAM-DIFF.md) —— 上游 v1.4.0→v1.4.3 差异与移植评估 —— 功能与视觉规划（键帽气泡为主线）
