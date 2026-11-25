@@ -53,7 +53,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.6.0";
+constexpr const wchar_t* APP_VERSION = L"0.6.1";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -1876,8 +1876,8 @@ void tickAndRender(AppState& app) {
         double now = nowSeconds();
         if (demoDragStart <= 0.0) demoDragStart = now;
         double t = now - demoDragStart;
-        double phase = std::fmod(t, 4.0);
-        if (phase < 2.8) {
+        double phase = std::fmod(t, 7.0);
+        if (phase < 6.0) {
             float dx = (float)std::sin((float)t * 3.1f) * 9.0f;
             float dy = (float)std::cos((float)t * 2.3f) * 6.0f;
             app.physics.setDragging(true, dx, dy);

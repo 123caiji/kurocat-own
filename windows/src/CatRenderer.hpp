@@ -163,7 +163,7 @@ public:
 
         // 后颈悬空：起吊高度用 smoothstep，避免线性生硬（对齐上游手感）
         float scruffS = scruff * scruff * (3.0f - 2.0f * scruff);
-        float seatY = CatPhysics::SeatAnchor.y - scruffS * 38.0f + lieS * 10.0f + physics.scruffSwingY.value * 6.0f;
+        float seatY = CatPhysics::SeatAnchor.y - scruffS * 44.0f + lieS * 10.0f + physics.scruffSwingY.value * 6.0f;
         float fallAngle = -dizzyFall * 1.46f + std::sin(physics.time * 9.5f) * 0.16f * preWobble;
         float fallShiftX = dizzyFall * 56.0f;
         float fallShiftY = dizzyFall * 20.0f;
@@ -174,17 +174,21 @@ public:
         };
 
         // 1. Mini White Mouse OR Graphics Tablet (when drawing tablet/stylus is connected!)
+        // 被拎起来时，桌上的鼠标/键盘随悬空度淡出（对齐上游「离开桌面」的观感）
+        float scruffDeskFade = 1.0f - std::clamp(scruffS / 0.48f, 0.0f, 1.0f);
+        scruffDeskFade = scruffDeskFade * scruffDeskFade * (3.0f - 2.0f * scruffDeskFade);
+
         if (physics.isTabletActive) {
             drawTablet(g, physics, settings.keyboardTheme, settings.eyeTheme);
             if (!physics.leftPawOnMouse || scruff > 0.25f || dizzy > 0.35f || lie > 0.45f) {
                 drawParkedStylus(g, settings.keyboardTheme, settings.eyeTheme);
             }
         } else {
-            drawMouse(g, physics, settings.keyboardTheme);
+            drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { drawMouse(lg, physics, settings.keyboardTheme); });
         }
 
         // 2. Mini 65% Mechanical Keyboard (facing cat) + Backlit Glow
-        drawKeyboard(g, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee);
+        drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { drawKeyboard(lg, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee); });
 
         GraphicsState fallState = g.Save();
         if (dizzy > 0.01f) {
@@ -1082,6 +1086,33 @@ private:
             return Gdiplus::PointF(x+-dy/len*n,y+dx/len*n);
         }
     };
+    /// 把一段绘制渲染到离屏位图，再以 alpha 合成回主画布（用于悬空时桌面淡出）
+    static void drawWithLayerAlpha(Gdiplus::Graphics& g, float alpha, const std::function<void(Gdiplus::Graphics&)>& fn) {
+        using namespace Gdiplus;
+        if (alpha >= 0.995f) { fn(g); return; }
+        if (alpha <= 0.005f) return;
+        const int W = (int)CatPhysics::CanvasWidth, H = (int)CatPhysics::CanvasHeight;
+        Bitmap layer(W, H, PixelFormat32bppARGB);
+        {
+            Graphics lg(&layer);
+            lg.SetSmoothingMode(SmoothingModeAntiAlias);
+            lg.SetPixelOffsetMode(PixelOffsetModeHighQuality);
+            lg.SetTextRenderingHint(TextRenderingHintAntiAlias);
+            lg.Clear(Color(0, 0, 0, 0));
+            fn(lg);
+        }
+        ColorMatrix cm = {
+            1, 0, 0, 0, 0,
+            0, 1, 0, 0, 0,
+            0, 0, 1, 0, 0,
+            0, 0, 0, alpha, 0,
+            0, 0, 0, 0, 1
+        };
+        ImageAttributes ia;
+        ia.SetColorMatrix(&cm, ColorMatrixFlagsDefault, ColorAdjustTypeBitmap);
+        g.DrawImage(&layer, RectF(0, 0, (REAL)W, (REAL)H), 0, 0, W, H, UnitPixel, &ia);
+    }
+
     static TailCurve tailCurve(float seatX, float seatY, const CatPhysics& physics, const SkinSpec& skin) {
         using namespace Gdiplus;
         float p = physics.tailPhase;
@@ -1117,6 +1148,22 @@ private:
         c.tip.X += (target.x - c.tip.X) * reach;
         c.tip.Y += (target.y - c.tip.Y) * reach;
 
+        // 后颈悬空：尾巴失去支撑自然下垂，随摆动左右甩（对齐上游的 limp droop）
+        {
+            float scr = std::clamp(physics.scruffDrag.value, 0.0f, 1.0f);
+            float scrS = scr * scr * (3.0f - 2.0f * scr);
+            if (scrS > 0.001f) {
+                float sw = physics.scruffTailSwing.value;
+                PointF dRoot(c.root.X, c.root.Y);
+                PointF dC1(dRoot.X + 12.0f + sw * 6.0f, dRoot.Y + 26.0f);
+                PointF dC2(dRoot.X + 8.0f + sw * 16.0f, dRoot.Y + 54.0f);
+                PointF dTip(dRoot.X - 2.0f + sw * 26.0f, dRoot.Y + 76.0f);
+                auto mix = [&](PointF a, PointF b) { return PointF(a.X + (b.X - a.X) * scrS, a.Y + (b.Y - a.Y) * scrS); };
+                c.c1 = mix(c.c1, dC1);
+                c.c2 = mix(c.c2, dC2);
+                c.tip = mix(c.tip, dTip);
+            }
+        }
         // When curling up to sleep, tail sweeps smoothly around the front to wrap cozily around the cat ball!
         float sleepWag = std::sin(p * 0.6f) * 2.0f;
         c.root.X += (seatX + 40.0f + shift - c.root.X) * lieS;

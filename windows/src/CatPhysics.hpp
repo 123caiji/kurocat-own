@@ -460,7 +460,8 @@ public:
             scruffDragAccumX_ = 0.0f;
             scruffDragAccumY_ = 0.0f;
             if (wasDragging) scruffDropTimer_ = 0.16f;
-            bodySquash.velocity -= 1.8f;
+            bodySquash.velocity -= 2.4f;
+            headOffsetY.velocity += 78.0f;   // 落地瞬间头轻弹一下（对齐上游手感）
         }
     }
 
@@ -779,16 +780,20 @@ public:
             if (tabletTrail[i].age >= 0.72f) tabletTrail.erase(tabletTrail.begin() + i);
         }
 
-        if (scruff > 0.25f) {
-            float sway = scruffSwing.value * 28.0f;
-            float swayY = scruffSwingY.value * 10.0f;
-            float kick = std::sin(time * 9.0f) * 3.5f * scruff;
-            leftPaw.setTarget({ SeatAnchor.x - 16.0f + sway, 198.0f + kick + swayY });
-            rightPaw.setTarget({ SeatAnchor.x + 16.0f + sway, 200.0f - kick + swayY });
-            hindFoot.setTarget({ SeatAnchor.x + 12.0f + sway * 1.2f, 224.0f });
-            hindFootActive.target = 0.0f;
-            leftPawTyping = false;
-            rightPawTyping = false;
+        if (scruff > 0.24f) {
+            // 悬空姿态：身体被提起来，四条爪子自然下垂并随摆动晃（对齐上游的垂爪手感）
+            float scruffS = scruff * scruff * (3.0f - 2.0f * scruff);
+            float liftSeatY = SeatAnchor.y - scruffS * 44.0f;
+            float lSway = scruffSwing.value * 24.0f + std::sin(time * 7.6f) * 3.0f;
+            float lBob = std::cos(time * 7.6f) * 2.2f;
+            float rSway = scruffSwing.value * 24.0f + std::sin(time * 7.6f + 2.1f) * 3.0f;
+            float rBob = std::cos(time * 7.6f + 2.1f) * 2.2f;
+            leftPaw.setTarget({ SeatAnchor.x + bodyShiftX.value - 20.0f + lSway, liftSeatY + 24.0f + lBob });
+            rightPaw.setTarget({ SeatAnchor.x + bodyShiftX.value + 16.0f + rSway, liftSeatY + 24.0f + rBob });
+            hindFoot.setTarget({ SeatAnchor.x + bodyShiftX.value + 6.0f + scruffSwing.value * 18.0f, liftSeatY + 34.0f });
+            hindFootActive.target = 0.9f;
+            leftPawTyping = true;    // 让渲染器走"伸出的腿"分支（不是坐姿并腿）
+            rightPawTyping = true;
             leftPawOnMouse = false;
         } else if (dizzy > 0.35f) {
             leftPaw.setTarget(LeftPawRest);
