@@ -3,9 +3,14 @@
 > 一只自用的 Windows 桌面猫：**打字 / 鼠标操作实时反馈** + **数据驱动的皮肤系统**。
 > 基于 [chanke17/KuroCat](https://github.com/chanke17/KuroCat) v1.4.0（MIT）移植改造，自带 7 款毛色，可导入自定义皮肤。
 
-<p align="center">
-  <img src="docs/media/demo.gif" width="360" alt="KuroCat Own 演示：扭头、眨眼、尾巴" />
-</p>
+## 🎬 演示
+
+| 转头 / 眨眼 / 尾巴 | 操作信息条（键名 · 组合键 · 鼠标三键 · 滚轮） |
+|---|---|
+| <img src="docs/media/demo-idle.gif" width="360" alt="KuroCat Own 转头眨眼" /> | <img src="docs/media/demo-info.gif" width="360" alt="KuroCat Own 操作信息条" /> |
+
+> 两张动图都是从**本工程编译产物**的真实窗口逐帧抓的（`tools/capture.exe` + `tools/img.mjs`，零依赖），不是上游素材。
+
 
 <p align="center">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D4?style=flat-square" />
@@ -22,6 +27,7 @@
 | | 能力 | 说明 |
 |---|---|---|
 | ⌨️ | **打字实时反馈** | 全局键盘监听（Raw Input 硬件扫描码），任意窗口 / 游戏都能看到猫爪敲键、键帽亮起 |
+| 🏷️ | **操作信息条（P0 新增）** | 猫头顶常驻显示：键名、组合键、鼠标 L/R/M 状态灯、滚轮方向；空闲显示「等待输入」 |
 | 🖱️ | **鼠标跟手** | 左右中键分别响应；光标移动时猫头做 2.5D 转头、瞳孔跟随 |
 | 🎨 | **数据驱动皮肤** | `.kurocat` 是 JSON 描述的毛色 / 花纹 / 体型数据，不是贴图；改 JSON 就换猫 |
 | 👗 | **换装间** | 右键小猫 →「猫咪皮肤」切换；把 `.kurocat` 拖进换装间即可导入 |
@@ -95,6 +101,7 @@ kurocat-own/
 - **[docs/FEATURE-CATALOG.md](docs/FEATURE-CATALOG.md)** —— **248 个 DSH 桌宠包的功能全景（8 大类）+ 取舍矩阵 + 赛道空白确认**
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** —— 协作约定：**只写 C++17、零新增依赖、隐私红线**
 - **[docs/P0-V1-NOTES.md](docs/P0-V1-NOTES.md)** —— **P0-V1 实施记录：操作信息条 + 关闭上游更新通道（含性能/安全实测与回滚步骤）**
+- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** —— 版本与变更记录（含回滚 tag 对照）
 
 ## 📄 许可与来源
 

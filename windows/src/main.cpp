@@ -1788,9 +1788,17 @@ void tickAndRender(AppState& app) {
             ++shown;
         }
 #ifdef KC_TEST_SAMPLE
-        app.actionName = L"左Shift";
-        app.actionVerb = L"按下";
-        app.actionTime = nowSeconds();
+        // 录制演示用：每 0.9s 切换一种动作（仅测试构建；生产构建不定义该宏）
+        {
+            static const wchar_t* names[] = { L"左Shift", L"A", L"回车", L"鼠标右键", L"滚轮 ↑" };
+            static const wchar_t* verbs[] = { L"按下", L"按下", L"按下", L"按下", L"滚动" };
+            int step = (int)(nowSeconds() / 0.9) % 5;
+            app.actionName = names[step];
+            app.actionVerb = verbs[step];
+            app.actionTime = nowSeconds();
+            app.wheelDir = step == 4 ? 1 : 0;
+            app.wheelTime = nowSeconds();
+        }
 #endif
         const bool hasAction = !app.actionName.empty();
         const std::wstring shownName = hasAction ? app.actionName : std::wstring(L"等待输入");

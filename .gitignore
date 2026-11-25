@@ -11,3 +11,6 @@ tools/*.exe
 dist/backup/
 *.update.exe
 dist/patch-preview.txt
+
+dist/kc-*.exe
+dist/frames*
