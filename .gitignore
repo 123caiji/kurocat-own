@@ -20,3 +20,4 @@ dist/state.json
 dist/state-hit.log
 dist/tama-live.bmp
 dist/cmp-*.bmp
+state-dir/
