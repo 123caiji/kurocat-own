@@ -121,7 +121,7 @@ inline void play(const std::vector<BYTE>& wav) {
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.11.0";
+constexpr const wchar_t* APP_VERSION = L"0.11.1";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -204,6 +204,7 @@ enum MenuCmd : UINT {
     CMD_FEED_TREAT,
     CMD_TOGGLE_SOUND,
     CMD_WANDER_NOW,
+    CMD_TOGGLE_WANDER,
     CMD_OPEN_UPDATE,
     CMD_RELAUNCH_ADMIN,
     CMD_TOGGLE_RUN_AS_ADMIN,
@@ -1091,6 +1092,13 @@ void applyWindowScaleAndPosition(AppState& app, bool anchorBottomCenter, bool pe
 /// Puts the cat back on top of other topmost windows (borderless/fullscreen games that make
 /// themselves topmost after launching used to bury the cat, which looked like it "vanished").
 void assertTopmost(AppState& app) {
+    // 节流：频繁 force-topmost 会让分层窗口闪一下（用户观感就是「闪退」）
+    {
+        static double lastForceTopmost = 0.0;
+        double tn = nowSeconds();
+        if (tn - lastForceTopmost < 0.5) return;
+        lastForceTopmost = tn;
+    }
     if (!app.hwnd || !app.isVisible || app.hiddenByFullscreen || !app.settings.alwaysOnTop) return;
     if (app.settings.obsCaptureMode > 0 && app.settings.obsHideDesktop) return;
     if (app.dressingRoom && IsWindowVisible(app.dressingRoom)) return;
@@ -1701,6 +1709,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
         AppendMenuW(remindersMenu, MF_STRING, CMD_REMIND_TEST, tr2(L"\u7ACB\u5373\u6D4B\u8BD5\u63D0\u9192", L"Test reminder now"));
         AppendMenuW(remindersMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(remindersMenu, MF_STRING, CMD_FEED_TREAT, tr2(L"\u5582\u5C0F\u9C7C\u5E72", L"Feed a treat"));
+        AppendMenuW(remindersMenu, MF_STRING | (app.settings.wanderEnabled ? MF_CHECKED : 0), CMD_TOGGLE_WANDER, tr2(L"\u95F2\u65F6\u81EA\u5DF1\u6E9C\u8FBE", L"Wander when idle"));
         AppendMenuW(remindersMenu, MF_STRING, CMD_WANDER_NOW, tr2(L"\u8BA9\u5B83\u901B\u901B", L"Wander somewhere"));
     }
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4", L"Cat Skin"));
@@ -1964,6 +1973,11 @@ void showContextMenu(AppState& app, POINT screenPt) {
             app.physics.addPawPrint({ 150.0f, 268.0f });
             showTrayBalloon(app, L"Tama", app.settings.isEnglish ? L"*nom nom*" : L"小鱼干真好吃\uFF5E");
             break;
+        case CMD_TOGGLE_WANDER:
+            app.settings.wanderEnabled = !app.settings.wanderEnabled;
+            app.settings.saveToRegistry();
+            app.nextAutoWander = 0.0;
+            break;
         case CMD_WANDER_NOW:
             moveWindowRandomly(app);
             break;
@@ -2136,6 +2150,24 @@ void tickAndRender(AppState& app) {
         }
     }
 
+#ifdef KC_DEMO_STRESS
+    {
+        static double nextKeyS = 0.0, nextMiscS = 0.0;
+        double ns = nowSeconds();
+        if (ns > nextKeyS) {
+            nextKeyS = ns + 0.04;
+            static const PhysicalKey seqS[] = { PhysicalKey::A, PhysicalKey::B, PhysicalKey::C, PhysicalKey::Enter, PhysicalKey::Escape };
+            app.physics.triggerKeyDown(seqS[(int)(ns * 25) % 5], app.settings);
+        }
+        if (ns > nextMiscS) {
+            nextMiscS = ns + 6.0;
+            app.physics.feed();
+            app.physics.addPawPrint({ 160.0f, 270.0f });
+            moveWindowRandomly(app);
+        }
+    }
+#endif
+
 #ifdef KC_DEMO_FALL
     {
         static int stageF = 0;
@@ -2256,7 +2288,14 @@ void tickAndRender(AppState& app) {
         } else {
             app.settings.posY = y;
         }
-        SetWindowPos(app.hwnd, nullptr, app.settings.posX, app.settings.posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        {
+                    static double lastFallMove = 0.0;
+                    double fn = nowSeconds();
+                    if (fn - lastFallMove > 0.016) {
+                        lastFallMove = fn;
+                        SetWindowPos(app.hwnd, nullptr, app.settings.posX, app.settings.posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                }
     }
 
     // ---- 漫步动画 / 电量 / 夜间（v0.10）----
@@ -2275,7 +2314,14 @@ void tickAndRender(AppState& app) {
                 double e = k < 0.5 ? 2.0 * k * k : 1.0 - std::pow(-2.0 * k + 2.0, 2.0) / 2.0;
                 int x = app.wanderFrom.x + (int)((app.wanderTo.x - app.wanderFrom.x) * e);
                 int y = app.wanderFrom.y + (int)((app.wanderTo.y - app.wanderFrom.y) * e);
-                SetWindowPos(app.hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                {
+                                    static double lastWanderMove = 0.0;
+                                    double wn = nowSeconds();
+                                    if (wn - lastWanderMove > 0.016) {
+                                        lastWanderMove = wn;
+                                        SetWindowPos(app.hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                                    }
+                                }
                 app.physics.bodyShiftX.target = (float)((app.wanderTo.x - app.wanderFrom.x) > 0 ? 6.0 : -6.0);
             }
         }
@@ -2285,7 +2331,7 @@ void tickAndRender(AppState& app) {
             bool idle = (enow - app.input.lastKeyActivityTime > 100.0) &&
                         (enow - app.input.lastMouseMoveTime > 100.0) &&
                         !app.isDragging && !app.falling;
-            if (idle && !app.wandering && app.nextAutoWander <= 0.0) {
+            if (app.settings.wanderEnabled && idle && !app.wandering && app.nextAutoWander <= 0.0) {
                 app.nextAutoWander = enow + 120.0 + (double)(rand() % 120);
             }
             if (app.nextAutoWander > 0.0 && enow >= app.nextAutoWander) {
@@ -2847,7 +2893,28 @@ int runUpdateCheckCli() {
     return 0;
 }
 
+/// 崩溃记录：把未处理异常写进 exe 同目录 crash.log（用于判断「闪退」到底是崩了还是只是不显示）
+LONG WINAPI tamaCrashHandler(EXCEPTION_POINTERS* info) {
+    wchar_t exe[MAX_PATH] = {0};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring p(exe);
+    size_t slash = p.find_last_of(L"\\");
+    if (slash != std::wstring::npos) p = p.substr(0, slash);
+    p += L"\\crash.log";
+    FILE* f = _wfopen(p.c_str(), L"a");
+    if (f) {
+        SYSTEMTIME st{}; GetLocalTime(&st);
+        fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] code=0x%08lX addr=%p\n",
+                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+                (unsigned long)info->ExceptionRecord->ExceptionCode,
+                (void*)info->ExceptionRecord->ExceptionAddress);
+        fclose(f);
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
+    SetUnhandledExceptionFilter(tamaCrashHandler);
     // 诊断入口：--check-update 同步跑一次更新检查并写日志后退出（不建窗口、不下载、不执行任何文件）
     if (commandLineHasFlag(L"--check-update")) {
         return runUpdateCheckCli();
