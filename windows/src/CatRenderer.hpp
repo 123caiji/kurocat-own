@@ -295,6 +295,8 @@ public:
         }
 
         // 10. Subtle Petting Sparkles & Sleep Z
+        // 恶作剧：地面上淡出的黑色小爪印
+        drawPawPrints(g, physics);
         drawSparkles(g, physics, settings.eyeTheme);
 
         g.Restore(flipState);
@@ -2712,6 +2714,25 @@ private:
     }
 
     // MARK: - Petting Sparkles & Sleep Z
+
+    /// 淡出的爪印（恶作剧 / 走动留痕）
+    static void drawPawPrints(Gdiplus::Graphics& g, const CatPhysics& physics) {
+        using namespace Gdiplus;
+        for (const auto& p : physics.pawPrints) {
+            float t = std::clamp(p.age / 6.0f, 0.0f, 1.0f);
+            BYTE a = (BYTE)((1.0f - t) * 110.0f);
+            if (a < 6) continue;
+            GraphicsState st = g.Save();
+            g.TranslateTransform(p.pos.x, p.pos.y);
+            g.RotateTransform(p.rot * 12.0f);
+            SolidBrush pad(Color(a, 26, 24, 28));
+            g.FillEllipse(&pad, -4.5f, -2.0f, 9.0f, 7.0f);
+            g.FillEllipse(&pad, -6.5f, -7.0f, 3.6f, 3.6f);
+            g.FillEllipse(&pad, -1.8f, -8.4f, 3.6f, 3.6f);
+            g.FillEllipse(&pad, 3.0f, -7.0f, 3.6f, 3.6f);
+            g.Restore(st);
+        }
+    }
 
     static void drawSparkles(Gdiplus::Graphics& g, const CatPhysics& physics, EyeColorTheme eyeTheme) {
         using namespace Gdiplus;

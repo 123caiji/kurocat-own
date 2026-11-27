@@ -54,7 +54,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.9.0";
+constexpr const wchar_t* APP_VERSION = L"0.10.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -134,6 +134,8 @@ enum MenuCmd : UINT {
     CMD_REMIND_SIT_TOGGLE,
     CMD_REMIND_DND,
     CMD_REMIND_TEST,
+    CMD_FEED_TREAT,
+    CMD_WANDER_NOW,
     CMD_OPEN_UPDATE,
     CMD_RELAUNCH_ADMIN,
     CMD_TOGGLE_RUN_AS_ADMIN,
@@ -165,6 +167,18 @@ struct AppState {
     SkinLibrary skins;
     HWND dressingRoom = nullptr;    // 「换装间」 import window (nullptr when closed)
     tama_remind::Engine remind;      // 提醒引擎（第 1 层：纯本地定时）
+    // ---- 漫步 / 环境感知（v0.10）----
+    bool wandering = false;
+    double wanderStart = 0.0;
+    double wanderDur = 1.6;
+    POINT wanderFrom = {};
+    POINT wanderTo = {};
+    double lastWanderCheck = 0.0;
+    double nextAutoWander = 0.0;
+    double lastBatteryWarn = 0.0;
+    double lastPowerPoll = 0.0;
+    int    batteryPercent = 100;
+    bool   batteryCharging = true;
     std::wstring dressingStatusText;  // status line of 换装间; kind 0 neutral, 1 success, 2 error
     int dressingStatusKind = 0;
     float dressingScale = 1.0f;       // DPI scale of the 换装间 layout (design units are 96-dpi pixels)
@@ -1485,6 +1499,8 @@ void confirmDeleteSkin(AppState& app, const std::string& id) {
     refreshDressingRoom(app);
 }
 
+void moveWindowRandomly(AppState& app);   // 漫步：随机移动窗口
+
 void showContextMenu(AppState& app, POINT screenPt) {
     HMENU menu = CreatePopupMenu();
     HMENU appearanceMenu = CreatePopupMenu();   // 外观：键帽/键位图例/跑马灯/键盘配色/瞳色/数位板
@@ -1607,6 +1623,9 @@ void showContextMenu(AppState& app, POINT screenPt) {
         AppendMenuW(remindersMenu, MF_STRING | (inDnd ? MF_CHECKED : 0), CMD_REMIND_DND,
                     tr2(L"\u514D\u6253\u6270 1 \u5C0F\u65F6", L"Do not disturb 1h"));
         AppendMenuW(remindersMenu, MF_STRING, CMD_REMIND_TEST, tr2(L"\u7ACB\u5373\u6D4B\u8BD5\u63D0\u9192", L"Test reminder now"));
+        AppendMenuW(remindersMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(remindersMenu, MF_STRING, CMD_FEED_TREAT, tr2(L"\u5582\u5C0F\u9C7C\u5E72", L"Feed a treat"));
+        AppendMenuW(remindersMenu, MF_STRING, CMD_WANDER_NOW, tr2(L"\u8BA9\u5B83\u901B\u901B", L"Wander somewhere"));
     }
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4", L"Cat Skin"));
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)appearanceMenu, tr(L"\U0001F3A8 \u5916\u89C2", L"\U0001F3A8 Appearance"));
@@ -1859,6 +1878,14 @@ void showContextMenu(AppState& app, POINT screenPt) {
             if (app.remind.inDnd(nowSeconds())) app.remind.cancelDnd();
             else app.remind.startDnd(nowSeconds(), 3600.0);
             break;
+        case CMD_FEED_TREAT:
+            app.physics.feed();
+            app.physics.addPawPrint({ 150.0f, 268.0f });
+            showTrayBalloon(app, L"Tama", app.settings.isEnglish ? L"*nom nom*" : L"小鱼干真好吃\uFF5E");
+            break;
+        case CMD_WANDER_NOW:
+            moveWindowRandomly(app);
+            break;
         case CMD_REMIND_TEST:
             app.physics.triggerReminder(3, app.settings);
             showTrayBalloon(app, app.settings.isEnglish ? L"Tama reminder" : L"Tama \u63D0\u9192",
@@ -1909,6 +1936,25 @@ bool physicsLooksSane(const CatPhysics& p) {
         if (!std::isfinite(v) || std::fabs(v) > 1.0e6f) return false;
     }
     return true;
+}
+
+/// 随机挑一个屏幕位置，平滑移动过去（漫步）
+void moveWindowRandomly(AppState& app) {
+    if (!app.hwnd || app.wandering) return;
+    RECT work{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    RECT wr{};
+    GetWindowRect(app.hwnd, &wr);
+    int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
+    int maxX = std::max((int)work.left, (int)work.right - ww);
+    int maxY = std::max((int)work.top, (int)work.bottom - wh - 40);
+    int tx = work.left + (int)((double)rand() / RAND_MAX * (maxX - work.left));
+    int ty = work.top + (int)((double)rand() / RAND_MAX * (maxY - work.top));
+    app.wandering = true;
+    app.wanderStart = nowSeconds();
+    app.wanderFrom = { wr.left, wr.top };
+    app.wanderTo = { tx, ty };
+    app.physics.sleepiness = 0.0f;
 }
 
 void tickAndRender(AppState& app) {
@@ -2005,6 +2051,18 @@ void tickAndRender(AppState& app) {
         }
     }
 
+#ifdef KC_DEMO_INTERACT
+    {
+        static int stage = 0;
+        static double t0i = 0.0;
+        double ni = nowSeconds();
+        if (t0i <= 0.0) t0i = ni;
+        double el = ni - t0i;
+        if (stage == 0 && el > 3.0) { stage = 1; app.physics.feed(); app.physics.addPawPrint({ 150.0f, 268.0f }); app.physics.addPawPrint({ 180.0f, 282.0f }); }
+        if (stage == 1 && el > 7.0) { stage = 2; moveWindowRandomly(app); }
+    }
+#endif
+
 #ifdef KC_REMIND_TEST_HOOK
     {
         static bool firedRemind = false;
@@ -2054,6 +2112,63 @@ void tickAndRender(AppState& app) {
                 showTrayBalloon(app, L"Tama \u63D0\u9192", L"\u5750\u592A\u4E45\u4E86\uFF0C\u52A8\u4E00\u4E0B\u3002");
                 r.lastActivityTime = rnow;
                 r.startDnd(rnow, 600.0);
+            }
+        }
+    }
+
+    // ---- 漫步动画 / 电量 / 夜间（v0.10）----
+    {
+        double enow = nowSeconds();
+        // 1) 漫步位置插值（ease-in-out）
+        if (app.wandering) {
+            double k = (enow - app.wanderStart) / app.wanderDur;
+            if (k >= 1.0) {
+                app.wandering = false;
+                SetWindowPos(app.hwnd, nullptr, app.wanderTo.x, app.wanderTo.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                app.settings.posX = app.wanderTo.x;
+                app.settings.posY = app.wanderTo.y;
+                app.physics.addPawPrint({ 200.0f, 300.0f });
+            } else {
+                double e = k < 0.5 ? 2.0 * k * k : 1.0 - std::pow(-2.0 * k + 2.0, 2.0) / 2.0;
+                int x = app.wanderFrom.x + (int)((app.wanderTo.x - app.wanderFrom.x) * e);
+                int y = app.wanderFrom.y + (int)((app.wanderTo.y - app.wanderFrom.y) * e);
+                SetWindowPos(app.hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                app.physics.bodyShiftX.target = (float)((app.wanderTo.x - app.wanderFrom.x) > 0 ? 6.0 : -6.0);
+            }
+        }
+        // 2) 空闲 100 秒后偶尔自己溜达（2-4 分钟一次）
+        if (enow - app.lastWanderCheck > 5.0) {
+            app.lastWanderCheck = enow;
+            bool idle = (enow - app.input.lastKeyActivityTime > 100.0) && (enow - app.input.lastMouseMoveTime > 100.0);
+            if (idle && !app.isDragging && !app.wandering && app.nextAutoWander <= 0.0) {
+                app.nextAutoWander = enow + 120.0 + (double)(rand() % 120);
+            }
+            if (app.nextAutoWander > 0.0 && enow >= app.nextAutoWander) {
+                app.nextAutoWander = 0.0;
+                moveWindowRandomly(app);
+            }
+        }
+        // 3) 电量（每 30 秒查一次）：低于 20% 且未充电 → 提醒一次 / 精力掉得更快
+        if (enow - app.lastPowerPoll > 30.0) {
+            app.lastPowerPoll = enow;
+            SYSTEM_POWER_STATUS ps{};
+            if (GetSystemPowerStatus(&ps) && ps.BatteryFlag != 128) {
+                app.batteryPercent = (int)ps.BatteryLifePercent;
+                app.batteryCharging = ps.ACLineStatus == 1;
+                if (!app.batteryCharging && app.batteryPercent <= 20 && enow - app.lastBatteryWarn > 600.0) {
+                    app.lastBatteryWarn = enow;
+                    app.physics.triggerReminder(2, app.settings);
+                    showTrayBalloon(app, L"Tama", app.settings.isEnglish ? L"Battery is low." : L"\u7535\u6C60\u5FEB\u6CA1\u7535\u4E86\u3002");
+                }
+            }
+        }
+        // 4) 夜间（23:00-6:00）更容易犯困
+        {
+            SYSTEMTIME st{};
+            GetLocalTime(&st);
+            bool night = (st.wHour >= 23 || st.wHour < 6);
+            if (night && !app.isDragging) {
+                app.physics.sleepiness = std::min(0.85f, app.physics.sleepiness + dt * 0.25f);
             }
         }
     }
@@ -2780,3 +2895,5 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     if (hMutex) CloseHandle(hMutex);
     return exitCode;
 }
+void moveWindowRandomly(AppState& app);
+

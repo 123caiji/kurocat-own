@@ -272,6 +272,20 @@ public:
     float scruffDropTimer = 0.0f;
 public:
     float scruffStartle = 0.0f;   // 0..1：被拎起瞬间的瞪眼强度（渲染用）
+    // ---- 养成与彩蛋（v0.10）----
+    float energy = 1.0f;            // 0..1 精力：累/饿时降低
+    float feedFlash = 0.0f;         // 喂食闪光（0..1 衰减）
+    float specialKick = 0.0f;       // 彩蛋额外弹跳（0..1 衰减）
+    int   lastSpecialKey = -1;      // 0=Enter 1=Esc 2=Delete
+    struct PawPrint { Pt pos; float age = 0.0f; float rot = 0.0f; };
+    std::vector<PawPrint> pawPrints;
+
+    void addPawPrint(Pt p) {
+        pawPrints.push_back({ p, 0.0f, randRange(-0.5f, 0.5f) });
+        if (pawPrints.size() > 12) pawPrints.erase(pawPrints.begin());
+    }
+    void feed() { energy = std::min(1.0f, energy + 0.45f); feedFlash = 1.0f; sleepiness = 0.0f; }
+
     float fastMouseDuration_ = 0.0f;
     float dizzyTimer_ = 0.0f;
     Spring2D mouseOffset{{0.0f, 0.0f}};
@@ -722,6 +736,17 @@ public:
         scruffSwingY.step(dt, 108.0f, 8.4f);
         scruffTailSwing.step(dt, 58.0f, 5.2f);
         float scruff = std::clamp(scruffDrag.value, 0.0f, 1.0f);
+
+        // 养成：精力随时间缓慢下降（打字/走动消耗更快），喂食恢复
+        {
+            float drain = dt * (0.0016f + (isScruffDragging_ ? 0.004f : 0.0f));
+            energy = std::max(0.0f, energy - drain);
+            feedFlash = std::max(0.0f, feedFlash - dt * 1.6f);
+            specialKick = std::max(0.0f, specialKick - dt * 2.2f);
+            for (auto& pp : pawPrints) pp.age += dt;
+            pawPrints.erase(std::remove_if(pawPrints.begin(), pawPrints.end(),
+                                           [](const PawPrint& p) { return p.age > 6.0f; }), pawPrints.end());
+        }
 
         if (scruff > 0.3f) pupilScale.target = std::max(pupilScale.target, 1.10f + 0.18f * scruffStartle);
         // 刚被拎起 / 刚落地时的瞪眼（对齐作者的 startle）
