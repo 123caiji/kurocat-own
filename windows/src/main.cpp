@@ -32,6 +32,7 @@ using std::max;
 #include "CatPhysics.hpp"
 #include "CatRenderer.hpp"
 #include "Reminder.hpp"
+const char* g_lastActivity = "startup";   // 崩溃时记录最后阶段
 
 // ---- 程序合成音效（不引入任何素材文件）----
 namespace tama_sound {
@@ -121,7 +122,7 @@ inline void play(const std::vector<BYTE>& wav) {
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.11.1";
+constexpr const wchar_t* APP_VERSION = L"0.11.2";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -2364,6 +2365,7 @@ void tickAndRender(AppState& app) {
         }
     }
 
+    g_lastActivity = "physics.step";
     app.physics.step(dt, wr, app.input, app.settings);
     if (!physicsLooksSane(app.physics)) {
         // A single non-finite value would otherwise make every later frame draw nothing (the cat
@@ -2428,6 +2430,7 @@ void tickAndRender(AppState& app) {
     Gdiplus::Graphics g(&bmp);
     g.Clear(app.settings.obsCaptureMode == 2 ? Gdiplus::Color(255, 0, 255, 0) : Gdiplus::Color(0, 0, 0, 0));
     g.ScaleTransform((float)w / CatPhysics::CanvasWidth, (float)h / CatPhysics::CanvasHeight);
+    g_lastActivity = "renderer.draw";
     CatRenderer::draw(g, app.physics, app.settings, activeSkin(app));
 
     POINT ptDst = { wr.left, wr.top };
@@ -2907,7 +2910,7 @@ LONG WINAPI tamaCrashHandler(EXCEPTION_POINTERS* info) {
         fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] code=0x%08lX addr=%p\n",
                 st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
                 (unsigned long)info->ExceptionRecord->ExceptionCode,
-                (void*)info->ExceptionRecord->ExceptionAddress);
+                (void*)info->ExceptionRecord->ExceptionAddress, g_lastActivity);
         fclose(f);
     }
     return EXCEPTION_EXECUTE_HANDLER;
@@ -2996,6 +2999,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         setAutoStartEnabled(true);
     }
 
+    g_lastActivity = "input.keydown";
     app.input.onKeyDown = [&](PhysicalKey k) {
         const auto& held = app.input.activeKeys;
         app.physics.setModifierState(held.count(PhysicalKey::LeftControl) > 0 || held.count(PhysicalKey::RightControl) > 0,
