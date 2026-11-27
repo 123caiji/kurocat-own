@@ -1073,6 +1073,15 @@ private:
     }
 
     void spawnFloatingKeycap(const std::wstring& label, Pt pt, double now, int kind = 0) {
+        if (getenv("KC_BADGE_LOG")) {
+            FILE* lf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\badge-spawn.log", "a");
+            if (lf) {
+                char u8[128] = {0};
+                WideCharToMultiByte(CP_UTF8, 0, label.c_str(), -1, u8, 127, nullptr, nullptr);
+                fprintf(lf, "%.3f kind=%d label=%s\n", now, kind, u8);
+                fclose(lf);
+            }
+        }
         if (label.empty()) return;
         if (now - lastBadgeTime_ < 0.38) badgeCascade_ = (badgeCascade_ + 1) % 6;
         else badgeCascade_ = 0;
