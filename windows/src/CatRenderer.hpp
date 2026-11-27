@@ -2649,7 +2649,8 @@ private:
             float w;
             if (len <= 1) w = 24.0f;
             else if (len == 2) w = hasWide ? 36.0f : 32.0f;
-            else w = std::clamp(20.0f + 7.0f * (float)len, 40.0f, 86.0f);
+            else w = (b.kind >= 6) ? std::clamp(30.0f + 12.0f * (float)len, 70.0f, 190.0f)
+                                       : std::clamp(20.0f + 7.0f * (float)len, 40.0f, 86.0f);
             float h = 22.0f;
             float radius = 7.0f;
 
@@ -2662,6 +2663,10 @@ private:
                 case 2: faceR = 255; faceG = 236; faceB = 236; strokeR = 184; strokeG = 61; strokeB = 61; textR = 90; textG = 22; textB = 22; break;
                 case 3: faceR = 255; faceG = 246; faceB = 226; strokeR = 184; strokeG = 134; strokeB = 43; textR = 90; textG = 62; textB = 16; break;
                 case 4: faceR = 234; faceG = 247; faceB = 242; strokeR = 46; strokeG = 158; strokeB = 126; textR = 14; textG = 74; textB = 56; break;
+                case 6: faceR = 255; faceG = 244; faceB = 230; strokeR = 196; strokeG = 120; strokeB = 48; textR = 92; textG = 52; textB = 12; break;
+                case 7: faceR = 232; faceG = 244; faceB = 255; strokeR = 60; strokeG = 120; strokeB = 196; textR = 14; textG = 44; textB = 92; break;
+                case 8: faceR = 240; faceG = 240; faceB = 252; strokeR = 110; strokeG = 100; strokeB = 190; textR = 40; textG = 32; textB = 92; break;
+                case 9: faceR = 255; faceG = 240; faceB = 240; strokeR = 190; strokeG = 80; strokeB = 80; textR = 92; textG = 24; textB = 24; break;
                 default: break;
             }
 
@@ -2698,6 +2703,7 @@ private:
             g.FillPath(&glossBrush, &gloss);
 
             Font& font = (len <= 1) ? fSingle : fSmall;
+            static Font fRemind(&ff, 10.5f, FontStyleBold, UnitPixel);
             SolidBrush txtBrush(Color(a, textR, textG, textB));
             g.DrawString(b.label.c_str(), -1, &font, RectF(-w * 0.5f, -h * 0.5f + 0.6f, w, h), &sf, &txtBrush);
 

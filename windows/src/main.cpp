@@ -31,6 +31,7 @@ using std::max;
 #include "InputEngine.hpp"
 #include "CatPhysics.hpp"
 #include "CatRenderer.hpp"
+#include "Reminder.hpp"
 #include "SkinLibrary.hpp"
 
 #ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
@@ -53,7 +54,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.8.0";
+constexpr const wchar_t* APP_VERSION = L"0.9.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -121,6 +122,18 @@ enum MenuCmd : UINT {
     CMD_DEMO_BURST,
     CMD_RESET_POS,
     CMD_CHECK_UPDATE,
+    CMD_REMIND_REST_TOGGLE,
+    CMD_REMIND_REST_25,
+    CMD_REMIND_REST_45,
+    CMD_REMIND_REST_60,
+    CMD_REMIND_REST_90,
+    CMD_REMIND_WATER_TOGGLE,
+    CMD_REMIND_WATER_30,
+    CMD_REMIND_WATER_60,
+    CMD_REMIND_WATER_90,
+    CMD_REMIND_SIT_TOGGLE,
+    CMD_REMIND_DND,
+    CMD_REMIND_TEST,
     CMD_OPEN_UPDATE,
     CMD_RELAUNCH_ADMIN,
     CMD_TOGGLE_RUN_AS_ADMIN,
@@ -151,6 +164,7 @@ struct AppState {
     CatPhysics physics;
     SkinLibrary skins;
     HWND dressingRoom = nullptr;    // 「换装间」 import window (nullptr when closed)
+    tama_remind::Engine remind;      // 提醒引擎（第 1 层：纯本地定时）
     std::wstring dressingStatusText;  // status line of 换装间; kind 0 neutral, 1 success, 2 error
     int dressingStatusKind = 0;
     float dressingScale = 1.0f;       // DPI scale of the 换装间 layout (design units are 96-dpi pixels)
@@ -1477,6 +1491,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
     HMENU windowMenu = CreatePopupMenu();       // 窗口：显示隐藏 / 穿透 / 置顶 / 全屏自动隐藏
     HMENU systemMenu = CreatePopupMenu();       // 系统：自启 / 管理员 / OBS / 更新
     HMENU coatMenu = CreatePopupMenu();        // 皮肤：内置毛色 + 导入皮肤 + 工坊/文件夹
+    HMENU remindersMenu = CreatePopupMenu();   // 提醒：休息 / 喝水 / 久坐 / 免打扰
     bool en = app.settings.isEnglish;
     auto tr = [&](const wchar_t* zh, const wchar_t* eng) -> const wchar_t* { return en ? eng : zh; };
 
@@ -1567,10 +1582,37 @@ void showContextMenu(AppState& app, POINT screenPt) {
         for (size_t i = 0; i < listed; ++i) AppendMenuW(deleteMenu, MF_STRING, CMD_SKIN_DELETE_BASE + (UINT)i, utf8ToWide(app.skins.skins[i].name).c_str());
         AppendMenuW(coatMenu, MF_POPUP, (UINT_PTR)deleteMenu, tr(L"\u5220\u9664\u76AE\u80A4", L"Delete Skin"));
     }
+    {
+        bool en = app.settings.isEnglish;
+        auto tr2 = [&](const wchar_t* zh, const wchar_t* eng) -> const wchar_t* { return en ? eng : zh; };
+        AppendMenuW(remindersMenu, MF_STRING | (app.settings.remindRestEnabled ? MF_CHECKED : 0), CMD_REMIND_REST_TOGGLE,
+                    tr2(L"\u4F11\u606F\u63D0\u9192\uFF08\u957F\u65F6\u95F4\u6253\u5B57\uFF09", L"Rest reminder (long typing)"));
+        HMENU restInt = CreatePopupMenu();
+        AppendMenuW(restInt, MF_STRING | (app.settings.remindRestMinutes == 25 ? MF_CHECKED : 0), CMD_REMIND_REST_25, L"25 \u5206\u949F");
+        AppendMenuW(restInt, MF_STRING | (app.settings.remindRestMinutes == 45 ? MF_CHECKED : 0), CMD_REMIND_REST_45, L"45 \u5206\u949F");
+        AppendMenuW(restInt, MF_STRING | (app.settings.remindRestMinutes == 60 ? MF_CHECKED : 0), CMD_REMIND_REST_60, L"60 \u5206\u949F");
+        AppendMenuW(restInt, MF_STRING | (app.settings.remindRestMinutes == 90 ? MF_CHECKED : 0), CMD_REMIND_REST_90, L"90 \u5206\u949F");
+        AppendMenuW(remindersMenu, MF_POPUP, (UINT_PTR)restInt, tr2(L"\u4F11\u606F\u95F4\u9694", L"Rest interval"));
+        AppendMenuW(remindersMenu, MF_STRING | (app.settings.remindWaterEnabled ? MF_CHECKED : 0), CMD_REMIND_WATER_TOGGLE,
+                    tr2(L"\u559D\u6C34\u63D0\u9192", L"Water reminder"));
+        HMENU waterInt = CreatePopupMenu();
+        AppendMenuW(waterInt, MF_STRING | (app.settings.remindWaterMinutes == 30 ? MF_CHECKED : 0), CMD_REMIND_WATER_30, L"30 \u5206\u949F");
+        AppendMenuW(waterInt, MF_STRING | (app.settings.remindWaterMinutes == 60 ? MF_CHECKED : 0), CMD_REMIND_WATER_60, L"60 \u5206\u949F");
+        AppendMenuW(waterInt, MF_STRING | (app.settings.remindWaterMinutes == 90 ? MF_CHECKED : 0), CMD_REMIND_WATER_90, L"90 \u5206\u949F");
+        AppendMenuW(remindersMenu, MF_POPUP, (UINT_PTR)waterInt, tr2(L"\u559D\u6C34\u95F4\u9694", L"Water interval"));
+        AppendMenuW(remindersMenu, MF_STRING | (app.settings.remindSitEnabled ? MF_CHECKED : 0), CMD_REMIND_SIT_TOGGLE,
+                    tr2(L"\u4E45\u5750\u63D0\u9192", L"Sit reminder"));
+        AppendMenuW(remindersMenu, MF_SEPARATOR, 0, nullptr);
+        bool inDnd = app.remind.inDnd(nowSeconds());
+        AppendMenuW(remindersMenu, MF_STRING | (inDnd ? MF_CHECKED : 0), CMD_REMIND_DND,
+                    tr2(L"\u514D\u6253\u6270 1 \u5C0F\u65F6", L"Do not disturb 1h"));
+        AppendMenuW(remindersMenu, MF_STRING, CMD_REMIND_TEST, tr2(L"\u7ACB\u5373\u6D4B\u8BD5\u63D0\u9192", L"Test reminder now"));
+    }
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4", L"Cat Skin"));
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)appearanceMenu, tr(L"\U0001F3A8 \u5916\u89C2", L"\U0001F3A8 Appearance"));
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)windowMenu, tr(L"\U0001F5A5 \u7A97\u53E3", L"\U0001F5A5 Window"));
     AppendMenuW(menu, MF_POPUP, (UINT_PTR)systemMenu, tr(L"\u2699 \u7CFB\u7EDF", L"\u2699 System"));
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)remindersMenu, tr(L"\u23F0 \u63D0\u9192", L"\u23F0 Reminders"));
 
     // Keyboard Theme submenu
     HMENU kbMenu = CreatePopupMenu();
@@ -1793,6 +1835,35 @@ void showContextMenu(AppState& app, POINT screenPt) {
             app.settings.posY = -99999;
             applyWindowScaleAndPosition(app, false);
             break;
+        case CMD_REMIND_REST_TOGGLE:
+            app.settings.remindRestEnabled = !app.settings.remindRestEnabled;
+            app.settings.saveToRegistry();
+            break;
+        case CMD_REMIND_REST_25: app.settings.remindRestMinutes = 25; app.settings.saveToRegistry(); break;
+        case CMD_REMIND_REST_45: app.settings.remindRestMinutes = 45; app.settings.saveToRegistry(); break;
+        case CMD_REMIND_REST_60: app.settings.remindRestMinutes = 60; app.settings.saveToRegistry(); break;
+        case CMD_REMIND_REST_90: app.settings.remindRestMinutes = 90; app.settings.saveToRegistry(); break;
+        case CMD_REMIND_WATER_TOGGLE:
+            app.settings.remindWaterEnabled = !app.settings.remindWaterEnabled;
+            app.settings.saveToRegistry();
+            app.remind.nextWaterTime = 0.0;
+            break;
+        case CMD_REMIND_WATER_30: app.settings.remindWaterMinutes = 30; app.settings.saveToRegistry(); app.remind.nextWaterTime = 0.0; break;
+        case CMD_REMIND_WATER_60: app.settings.remindWaterMinutes = 60; app.settings.saveToRegistry(); app.remind.nextWaterTime = 0.0; break;
+        case CMD_REMIND_WATER_90: app.settings.remindWaterMinutes = 90; app.settings.saveToRegistry(); app.remind.nextWaterTime = 0.0; break;
+        case CMD_REMIND_SIT_TOGGLE:
+            app.settings.remindSitEnabled = !app.settings.remindSitEnabled;
+            app.settings.saveToRegistry();
+            break;
+        case CMD_REMIND_DND:
+            if (app.remind.inDnd(nowSeconds())) app.remind.cancelDnd();
+            else app.remind.startDnd(nowSeconds(), 3600.0);
+            break;
+        case CMD_REMIND_TEST:
+            app.physics.triggerReminder(3, app.settings);
+            showTrayBalloon(app, app.settings.isEnglish ? L"Tama reminder" : L"Tama \u63D0\u9192",
+                            app.settings.isEnglish ? L"This is what a reminder looks like." : L"\u63D0\u9192\u957F\u8FD9\u4E2A\u6837\u5B50\u3002");
+            break;
         case CMD_CHECK_UPDATE:
             if (app.menuOwnerHwnd) startAsyncUpdateCheck(app.menuOwnerHwnd, true, 0);
             break;
@@ -1930,6 +2001,59 @@ void tickAndRender(AppState& app) {
             if (st != lastState) {
                 lastState = st;
                 app.physics.triggerDshState(st, app.settings);
+            }
+        }
+    }
+
+#ifdef KC_REMIND_TEST_HOOK
+    {
+        static bool firedRemind = false;
+        static double remindT0 = 0.0;
+        double rn = nowSeconds();
+        if (remindT0 <= 0.0) remindT0 = rn;
+        if (!firedRemind && rn - remindT0 > 3.0) { firedRemind = true; app.physics.triggerReminder(0, app.settings); }
+    }
+#endif
+    // ---- 提醒引擎（第 1 层：纯本地定时，不联网）----
+    {
+        double rnow = nowSeconds();
+        auto& r = app.remind;
+        const bool dnd = r.inDnd(rnow);
+        // 记录最近活动时间
+        if (rnow - app.input.lastKeyActivityTime < 2.0) r.lastActivityTime = app.input.lastKeyActivityTime;
+        // 1) 连续打字 → 休息提醒
+        if (app.settings.remindRestEnabled && !dnd) {
+            bool typingNow = (rnow - app.input.lastKeyActivityTime) < 25.0;
+            if (typingNow) {
+                if (r.typingSessionStart <= 0.0) r.typingSessionStart = rnow;
+                if (rnow - r.typingSessionStart >= (double)app.settings.remindRestMinutes * 60.0) {
+                    app.physics.triggerReminder(0, app.settings);
+                    showTrayBalloon(app, app.settings.isEnglish ? L"Tama" : L"Tama \u63D0\u9192",
+                                    app.settings.isEnglish ? L"You've been typing a while. Take a break."
+                                                           : L"\u8FDE\u7EED\u6253\u5B57\u5F88\u4E45\u4E86\uFF0C\u8D77\u6765\u4F11\u606F\u4E00\u4E0B\u5427\u3002");
+                    r.typingSessionStart = rnow;
+                    r.startDnd(rnow, 300.0);
+                }
+            } else {
+                r.typingSessionStart = 0.0;
+            }
+        }
+        // 2) 喝水提醒
+        if (app.settings.remindWaterEnabled && !dnd) {
+            if (r.nextWaterTime <= 0.0) r.nextWaterTime = rnow + (double)app.settings.remindWaterMinutes * 60.0;
+            if (rnow >= r.nextWaterTime) {
+                app.physics.triggerReminder(1, app.settings);
+                showTrayBalloon(app, L"Tama \u63D0\u9192", L"\u8BE5\u559D\u6C34\u4E86\u3002");
+                r.nextWaterTime = rnow + (double)app.settings.remindWaterMinutes * 60.0;
+            }
+        }
+        // 3) 久坐提醒（长时间没有任何输入）
+        if (app.settings.remindSitEnabled && !dnd && r.lastActivityTime > 0.0) {
+            if (rnow - r.lastActivityTime >= (double)app.settings.remindSitMinutes * 60.0) {
+                app.physics.triggerReminder(2, app.settings);
+                showTrayBalloon(app, L"Tama \u63D0\u9192", L"\u5750\u592A\u4E45\u4E86\uFF0C\u52A8\u4E00\u4E0B\u3002");
+                r.lastActivityTime = rnow;
+                r.startDnd(rnow, 600.0);
             }
         }
     }

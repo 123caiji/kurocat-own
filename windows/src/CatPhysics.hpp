@@ -62,6 +62,14 @@ struct CatSettings {
     int posX = -99999;
     int posY = -99999;
 
+    // ---- 提醒（第 1 层：纯本地定时）----
+    bool remindRestEnabled = true;    // 长时间打字 → 提醒休息
+    int  remindRestMinutes = 45;      // 连续打字多久提醒
+    bool remindWaterEnabled = false;  // 喝水提醒
+    int  remindWaterMinutes = 60;     // 喝水间隔
+    bool remindSitEnabled = true;     // 久坐提醒（无输入也算在座）
+    int  remindSitMinutes = 60;
+
     void loadFromRegistry() {
         HKEY hKey = nullptr;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Tama", 0, KEY_READ, &hKey) != ERROR_SUCCESS) return;
@@ -103,7 +111,13 @@ struct CatSettings {
                 if (customSkin.size() != 16) customSkin.clear();
             }
         }
-        DWORD hasPos     = readDword(L"HasPos", 0);
+        remindRestEnabled  = readDword(L"RemindRest", 1) != 0;
+    remindRestMinutes  = std::clamp((int)readDword(L"RemindRestMin", 45), 5, 240);
+    remindWaterEnabled = readDword(L"RemindWater", 0) != 0;
+    remindWaterMinutes = std::clamp((int)readDword(L"RemindWaterMin", 60), 5, 240);
+    remindSitEnabled   = readDword(L"RemindSit", 1) != 0;
+    remindSitMinutes   = std::clamp((int)readDword(L"RemindSitMin", 60), 5, 240);
+    DWORD hasPos     = readDword(L"HasPos", 0);
         if (hasPos) {
             posX = (int)readDword(L"PosX", 0);
             posY = (int)readDword(L"PosY", 0);
@@ -142,7 +156,13 @@ struct CatSettings {
             RegSetValueExW(hKey, L"CustomSkin", 0, REG_SZ, (const BYTE*)id.c_str(), (DWORD)((id.size() + 1) * sizeof(wchar_t)));
         }
         if (posX != -99999 && posY != -99999) {
-            writeDword(L"HasPos", 1);
+            writeDword(L"RemindRest", remindRestEnabled ? 1 : 0);
+    writeDword(L"RemindRestMin", (DWORD)remindRestMinutes);
+    writeDword(L"RemindWater", remindWaterEnabled ? 1 : 0);
+    writeDword(L"RemindWaterMin", (DWORD)remindWaterMinutes);
+    writeDword(L"RemindSit", remindSitEnabled ? 1 : 0);
+    writeDword(L"RemindSitMin", (DWORD)remindSitMinutes);
+    writeDword(L"HasPos", 1);
             writeDword(L"PosX", (DWORD)posX);
             writeDword(L"PosY", (DWORD)posY);
         }
@@ -373,6 +393,24 @@ public:
         if (modAlt_) { if (!p.empty()) p += L"+"; p += L"Alt"; }
         if (modWin_) { if (!p.empty()) p += L"+"; p += L"Win"; }
         return p;
+    }
+
+
+    /// 提醒反应：kind 0=休息 1=喝水 2=久坐 3=测试
+    void triggerReminder(int kind, const CatSettings& settings) {
+        sleepiness = 0.0f;
+        earTwitch.velocity += (kind == 0 ? 3.4f : -3.0f);
+        headTilt.velocity += (kind == 0 ? -1.2f : 1.2f);
+        bodySquash.velocity -= (kind == 0 ? 1.6f : 0.8f);
+        tailCurl.velocity += 1.4f;
+        pupilScale.target = 1.14f;
+
+        const wchar_t* zh[] = { L"该休息了", L"喝口水吧", L"起来活动下", L"测试提醒" };
+        const wchar_t* en[] = { L"take a break", L"drink water", L"stand up", L"test reminder" };
+        int k = (kind < 0 || kind > 3) ? 3 : kind;
+        std::wstring label = settings.isEnglish ? en[k] : zh[k];
+        Pt pt = { CanvasWidth * 0.5f, 118.0f };
+        spawnFloatingKeycap(label, pt, nowSeconds(), 6 + k);
     }
 
     /// DSH 状态联动：0=思考 1=干活 2=完成 3=出错（-1=无状态，回到普通模式）
