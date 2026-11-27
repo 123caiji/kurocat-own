@@ -67,7 +67,7 @@ struct CatSettings {
     int  remindRestMinutes = 45;      // 连续打字多久提醒
     bool remindWaterEnabled = false;  // 喝水提醒
     int  remindWaterMinutes = 60;     // 喝水间隔
-    bool wanderEnabled = false;       // 空闲时自己溜达（默认关，避免被误认为闪退）
+    bool wanderEnabled = true;       // 空闲时自己溜达（默认关，避免被误认为闪退）
     bool soundEnabled = true;         // 轻音效（按键「哒」/ 呼噜），音量很低
     bool remindSitEnabled = true;     // 久坐提醒（无输入也算在座）
     int  remindSitMinutes = 60;
@@ -117,7 +117,7 @@ struct CatSettings {
     remindRestMinutes  = std::clamp((int)readDword(L"RemindRestMin", 45), 5, 240);
     remindWaterEnabled = readDword(L"RemindWater", 0) != 0;
     remindWaterMinutes = std::clamp((int)readDword(L"RemindWaterMin", 60), 5, 240);
-    wanderEnabled     = readDword(L"WanderEnabled", 0) != 0;
+    wanderEnabled     = readDword(L"WanderEnabled", 1) != 0;
     soundEnabled       = readDword(L"SoundEnabled", 1) != 0;
     remindSitEnabled   = readDword(L"RemindSit", 1) != 0;
     remindSitMinutes   = std::clamp((int)readDword(L"RemindSitMin", 60), 5, 240);

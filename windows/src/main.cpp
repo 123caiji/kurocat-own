@@ -122,7 +122,7 @@ inline void play(const std::vector<BYTE>& wav) {
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.11.2";
+constexpr const wchar_t* APP_VERSION = L"0.12.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -2036,27 +2036,44 @@ bool physicsLooksSane(const CatPhysics& p) {
 
 /// 随机挑一个屏幕位置，平滑移动过去（漫步）
 void moveWindowRandomly(AppState& app) {
+    if (getenv("KC_WANDER_LOG")) {
+        FILE* mf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+        if (mf) { fprintf(mf, "MOVE called\n"); fclose(mf); }
+    }
     if (!app.hwnd || app.wandering) return;
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
     RECT wr{};
     GetWindowRect(app.hwnd, &wr);
     int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
-    int maxX = std::max((int)work.left, (int)work.right - ww);
-    int maxY = std::max((int)work.top, (int)work.bottom - wh - 40);
-    // 自然一点：优先横向移动、单次距离不超过 260px，避免满屏乱飞
+    int minX = (int)work.left, maxX = std::max((int)work.left, (int)work.right - ww);
+    int minY = (int)work.top, maxY = std::max((int)work.top, (int)work.bottom - wh - 40);
     int baseX = wr.left, baseY = wr.top;
-    int dir = (rand() % 2 == 0) ? 1 : -1;
-    int dist = 110 + (int)(rand() % 150);
-    int tx = std::clamp(baseX + dir * dist, (int)work.left, maxX);
-    int ty = std::clamp(baseY + (int)(rand() % 90) - 45, (int)work.top, maxY);
+    // 朝向屏幕中心走：贴边时不会原地打转
+    int centerX = (minX + maxX) / 2;
+    int dir = (baseX > centerX) ? -1 : 1;
+    int dist = 140 + (int)(rand() % 160);            // 140~300px，保证能看出来在走
+    int tx = std::clamp(baseX + dir * dist, minX, maxX);
+    if (std::abs(tx - baseX) < 100) {                // 到头了就往反方向走
+        tx = std::clamp(baseX - dir * dist, minX, maxX);
+    }
+    int ty = std::clamp(baseY + (int)(rand() % 60) - 30, minY, maxY);
     app.wandering = true;
     app.wanderStart = nowSeconds();
+    app.wanderDur = 2.2;                             // 慢一点，像走过去而不是瞬移
     app.wanderFrom = { wr.left, wr.top };
     app.wanderTo = { tx, ty };
+    if (getenv("KC_WANDER_LOG")) {
+        FILE* tf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+        if (tf) { fprintf(tf, "TARGET from=(%d,%d) to=(%d,%d) dur=%.1f start=%.1f\n", wr.left, wr.top, tx, ty, app.wanderDur, app.wanderStart); fclose(tf); }
+    }
+    if (getenv("KC_WANDER_LOG")) {
+        FILE* tf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+        if (tf) { fprintf(tf, "TARGET from=(%d,%d) to=(%d,%d) dur=%.1f\n", wr.left, wr.top, tx, ty, app.wanderDur); fclose(tf); }
+    }
     app.physics.sleepiness = 0.0f;
+    app.physics.energy = std::max(0.35f, app.physics.energy - 0.01f);
 }
-
 void tickAndRender(AppState& app) {
     if (!app.isVisible || app.hiddenByFullscreen || !app.hwnd) return;
 
@@ -2302,38 +2319,49 @@ void tickAndRender(AppState& app) {
     // ---- 漫步动画 / 电量 / 夜间（v0.10）----
     {
         double enow = nowSeconds();
-        // 1) 漫步位置插值（ease-in-out）
+        // 1) 漫步：每 16ms 朝目标走最多 5px（步进式，状态简单可靠）
         if (app.wandering) {
-            double k = (enow - app.wanderStart) / app.wanderDur;
-            if (k >= 1.0) {
-                app.wandering = false;
+            RECT wnow{}; GetWindowRect(app.hwnd, &wnow);
+            int dx = app.wanderTo.x - wnow.left;
+            int dy = app.wanderTo.y - wnow.top;
+            int adx = std::abs(dx), ady = std::abs(dy);
+            if (adx <= 5 && ady <= 5) {
                 SetWindowPos(app.hwnd, nullptr, app.wanderTo.x, app.wanderTo.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                 app.settings.posX = app.wanderTo.x;
                 app.settings.posY = app.wanderTo.y;
+                app.wandering = false;
                 app.physics.addPawPrint({ 200.0f, 300.0f });
             } else {
-                double e = k < 0.5 ? 2.0 * k * k : 1.0 - std::pow(-2.0 * k + 2.0, 2.0) / 2.0;
-                int x = app.wanderFrom.x + (int)((app.wanderTo.x - app.wanderFrom.x) * e);
-                int y = app.wanderFrom.y + (int)((app.wanderTo.y - app.wanderFrom.y) * e);
-                {
-                                    static double lastWanderMove = 0.0;
-                                    double wn = nowSeconds();
-                                    if (wn - lastWanderMove > 0.016) {
-                                        lastWanderMove = wn;
-                                        SetWindowPos(app.hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-                                    }
-                                }
-                app.physics.bodyShiftX.target = (float)((app.wanderTo.x - app.wanderFrom.x) > 0 ? 6.0 : -6.0);
+                if (getenv("KC_WANDER_LOG")) {
+                    FILE* sf2 = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+                    if (sf2) { HWND fw = FindWindowW(nullptr, L"Tama"); RECT fr{}; if (fw) GetWindowRect(fw, &fr); fprintf(sf2, "STEP cur=(%d,%d) to=(%d,%d) hwnd=%p vis=%d find=%p findRect=(%d,%d)\n", (int)wnow.left, (int)wnow.top, app.wanderTo.x, app.wanderTo.y, (void*)app.hwnd, IsWindowVisible(app.hwnd) ? 1 : 0, (void*)fw, (int)fr.left, (int)fr.top); fclose(sf2); }
+                }
+                int sx = (dx > 0 ? 5 : (dx < 0 ? -5 : 0));
+                int sy = (dy > 0 ? 3 : (dy < 0 ? -3 : 0));
+                SetWindowPos(app.hwnd, nullptr, wnow.left + sx, wnow.top + sy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                app.physics.bodyShiftX.target = (float)(sx > 0 ? 5.0 : -5.0);
+                app.physics.bodyTilt.target = (float)(sx > 0 ? 0.05 : -0.05);
             }
+            // 走两步留一个爪印（有走动痕迹）
+            static int stepCount = 0;
+            if (++stepCount % 30 == 0) app.physics.addPawPrint({ 120.0f + (float)(rand() % 120), 296.0f });
         }
-        // 2) 空闲 100 秒后偶尔自己溜达（2-4 分钟一次）
+        // 2) 空闲后自己溜达（默认开启；KC_WANDER_QUICK=1 时切换到秒级便于测试）
+            if (getenv("KC_WANDER_LOG")) {
+                FILE* wf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+                if (wf) { fprintf(wf, "enow=%.1f keyIdle=%.1f mouseIdle=%.1f wander=%d falling=%d en=%d next=%.1f\n",
+                    enow, enow - app.input.lastKeyActivityTime, enow - app.input.lastMouseMoveTime,
+                    app.wandering ? 1 : 0, app.falling ? 1 : 0, app.settings.wanderEnabled ? 1 : 0, app.nextAutoWander); fclose(wf); }
+            }
         if (enow - app.lastWanderCheck > 5.0) {
             app.lastWanderCheck = enow;
-            bool idle = (enow - app.input.lastKeyActivityTime > 100.0) &&
-                        (enow - app.input.lastMouseMoveTime > 100.0) &&
+            static const bool quick = getenv("KC_WANDER_QUICK") != nullptr;
+            const double idleNeed = quick ? 4.0 : 120.0;
+            bool idle = (enow - app.input.lastKeyActivityTime > idleNeed) &&
+                        (enow - app.input.lastMouseMoveTime > (quick ? 4.0 : 45.0)) &&
                         !app.isDragging && !app.falling;
             if (app.settings.wanderEnabled && idle && !app.wandering && app.nextAutoWander <= 0.0) {
-                app.nextAutoWander = enow + 120.0 + (double)(rand() % 120);
+                app.nextAutoWander = enow + (quick ? 3.0 : (180.0 + (double)(rand() % 180)));
             }
             if (app.nextAutoWander > 0.0 && enow >= app.nextAutoWander) {
                 app.nextAutoWander = 0.0;
@@ -2433,6 +2461,9 @@ void tickAndRender(AppState& app) {
     g_lastActivity = "renderer.draw";
     CatRenderer::draw(g, app.physics, app.settings, activeSkin(app));
 
+    // 呈现前重新读窗口位置：漫步/下落可能在本帧中途移动过窗口，
+    // 旧代码用 tick 开头捕获的 wr 会导致移动立刻被 UpdateLayeredWindow 覆盖
+    GetWindowRect(app.hwnd, &wr);
     POINT ptDst = { wr.left, wr.top };
     SIZE szWnd = { w, h };
     POINT ptSrc = { 0, 0 };
@@ -2898,6 +2929,8 @@ int runUpdateCheckCli() {
 
 /// 崩溃记录：把未处理异常写进 exe 同目录 crash.log（用于判断「闪退」到底是崩了还是只是不显示）
 LONG WINAPI tamaCrashHandler(EXCEPTION_POINTERS* info) {
+    HMODULE base = GetModuleHandleW(nullptr);
+    uintptr_t off = (uintptr_t)info->ExceptionRecord->ExceptionAddress - (uintptr_t)base;
     wchar_t exe[MAX_PATH] = {0};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     std::wstring p(exe);
@@ -2907,10 +2940,10 @@ LONG WINAPI tamaCrashHandler(EXCEPTION_POINTERS* info) {
     FILE* f = _wfopen(p.c_str(), L"a");
     if (f) {
         SYSTEMTIME st{}; GetLocalTime(&st);
-        fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] code=0x%08lX addr=%p\n",
+        fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] code=0x%08lX base=%p off=0x%llX activity=%s\n",
                 st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
                 (unsigned long)info->ExceptionRecord->ExceptionCode,
-                (void*)info->ExceptionRecord->ExceptionAddress, g_lastActivity);
+                (void*)info->ExceptionRecord->ExceptionAddress, (void*)base, (unsigned long long)off, g_lastActivity);
         fclose(f);
     }
     return EXCEPTION_EXECUTE_HANDLER;
@@ -2965,6 +2998,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.settings.loadFromRegistry();
     // 调试：--demo-fall 把窗口抬到上方并开启自由落体（用于验证重力/落地）
     const bool demoFall = commandLineHasFlag(L"--demo-fall");
+    const bool wanderTest = commandLineHasFlag(L"--wander-test");
     app.skins.reload();
     app.isElevated = isCurrentProcessElevated();
 
@@ -3142,6 +3176,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
             if (nowSeconds() > drainUntil) break;
         }
         if (!running) break;
+        if (wanderTest) {
+            static double lastTestWander = 0.0;
+            static FILE* wtf = nullptr;
+            if (!wtf) wtf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander-test.log", "w");
+            double wn2 = nowSeconds();
+            RECT wr2{}; GetWindowRect(app.hwnd, &wr2);
+            if (wtf) { fprintf(wtf, "t=%.1f rect=(%d,%d) wandering=%d\n", wn2, (int)wr2.left, (int)wr2.top, app.wandering ? 1 : 0); fflush(wtf); }
+            if (wn2 - lastTestWander > 3.0) { lastTestWander = wn2; moveWindowRandomly(app); }
+        }
         renderIfDue(app);
         housekeeping(app);
     }
