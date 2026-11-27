@@ -8,7 +8,7 @@ where windres >nul 2>nul
 if errorlevel 1 goto nowindres
 windres windows\app.rc -O coff -o windows\app.res
 if errorlevel 1 goto errmain
-g++ -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -s -mwindows -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -static windows\src\main.cpp windows\app.res -o dist\tama.exe -luser32 -lgdi32 -lgdiplus -lshell32 -ladvapi32 -lwinhttp -lwtsapi32
+g++ -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -s -mwindows -municode -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601 -static windows\src\main.cpp windows\app.res -o dist\tama.exe -luser32 -lgdi32 -lgdiplus -lshell32 -ladvapi32 -lwinhttp -lwtsapi32 -lwinmm
 if errorlevel 1 goto errcc
 if not exist dist\skins mkdir dist\skins
 xcopy /y /q skins\*.kurocat dist\skins\ >nul

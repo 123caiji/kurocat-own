@@ -32,6 +32,73 @@ using std::max;
 #include "CatPhysics.hpp"
 #include "CatRenderer.hpp"
 #include "Reminder.hpp"
+
+// ---- 程序合成音效（不引入任何素材文件）----
+namespace tama_sound {
+constexpr int kRate = 22050;
+
+inline void putHeader(std::vector<BYTE>& b, int dataBytes) {
+    auto put32 = [&](size_t off, DWORD v) { memcpy(&b[off], &v, 4); };
+    auto put16 = [&](size_t off, WORD v) { memcpy(&b[off], &v, 2); };
+    b.assign(44 + dataBytes, 0);
+    memcpy(&b[0], "RIFF", 4);
+    put32(4, (DWORD)(36 + dataBytes));
+    memcpy(&b[8], "WAVEfmt ", 8);
+    put32(16, 16); put16(20, 1); put16(22, 1);
+    put32(24, kRate); put32(28, kRate * 2);
+    put16(32, 2); put16(34, 16);
+    memcpy(&b[36], "data", 4);
+    put32(40, (DWORD)dataBytes);
+}
+
+/// 一次轻轻的按键「哒」：18ms 噪声 + 指数衰减 + 低通
+inline const std::vector<BYTE>& clickWav() {
+    static std::vector<BYTE> wav;
+    if (!wav.empty()) return wav;
+    const int n = kRate * 18 / 1000;
+    std::vector<short> pcm(n);
+    float lp = 0.0f;
+    unsigned seed = 12345u;
+    for (int i = 0; i < n; i++) {
+        seed = seed * 1103515245u + 12345u;
+        float noise = ((float)((seed >> 16) & 0x7fff) / 16384.0f) - 1.0f;
+        lp += (noise - lp) * 0.35f;
+        float env = std::exp(-(float)i / (float)n * 7.0f);
+        pcm[i] = (short)(lp * env * 5200.0f);
+    }
+    putHeader(wav, n * 2);
+    memcpy(&wav[44], pcm.data(), pcm.size() * 2);
+    return wav;
+}
+
+/// 呼噜：900ms 低频调幅噪声（28Hz），音量很低
+inline const std::vector<BYTE>& purrWav() {
+    static std::vector<BYTE> wav;
+    if (!wav.empty()) return wav;
+    const int n = kRate * 900 / 1000;
+    std::vector<short> pcm(n);
+    float lp = 0.0f;
+    unsigned seed = 987654321u;
+    for (int i = 0; i < n; i++) {
+        seed = seed * 1103515245u + 12345u;
+        float noise = ((float)((seed >> 16) & 0x7fff) / 16384.0f) - 1.0f;
+        lp += (noise - lp) * 0.06f;
+        float t = (float)i / (float)kRate;
+        float am = 0.55f + 0.45f * std::sin(t * 6.2831853f * 28.0f);
+        float fade = std::min(1.0f, std::min(t / 0.08f, (0.9f - t) / 0.15f));
+        pcm[i] = (short)(lp * am * fade * 2600.0f);
+    }
+    putHeader(wav, n * 2);
+    memcpy(&wav[44], pcm.data(), pcm.size() * 2);
+    return wav;
+}
+
+inline void play(const std::vector<BYTE>& wav) {
+    PlaySoundW(reinterpret_cast<LPCWSTR>(wav.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+}
+
+}  // namespace tama_sound
+
 #include "SkinLibrary.hpp"
 
 #ifndef WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
@@ -54,7 +121,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.10.0";
+constexpr const wchar_t* APP_VERSION = L"0.11.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -135,6 +202,7 @@ enum MenuCmd : UINT {
     CMD_REMIND_DND,
     CMD_REMIND_TEST,
     CMD_FEED_TREAT,
+    CMD_TOGGLE_SOUND,
     CMD_WANDER_NOW,
     CMD_OPEN_UPDATE,
     CMD_RELAUNCH_ADMIN,
@@ -168,6 +236,13 @@ struct AppState {
     HWND dressingRoom = nullptr;    // 「换装间」 import window (nullptr when closed)
     tama_remind::Engine remind;      // 提醒引擎（第 1 层：纯本地定时）
     // ---- 漫步 / 环境感知（v0.10）----
+    // ---- 重力落地（v0.11）----
+    bool falling = false;
+    double fallVel = 0.0;
+    int fallX = 0;
+    int fallGroundY = 0;
+    int fallBounces = 0;
+
     bool wandering = false;
     double wanderStart = 0.0;
     double wanderDur = 1.6;
@@ -1553,6 +1628,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
     AppendMenuW(systemMenu, MF_STRING | (app.settings.runAsAdmin ? MF_CHECKED : 0), CMD_TOGGLE_RUN_AS_ADMIN, tr(L"\u6BCF\u6B21\u542F\u52A8\u90FD\u4EE5\u7BA1\u7406\u5458\u8EAB\u4EFD\u8FD0\u884C", L"Always Run as Administrator"));
 
     AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyBadges ? MF_CHECKED : 0), CMD_TOGGLE_BADGES, tr(L"\u663E\u793A\u6309\u952E\u6C14\u6CE1 ([S] [W] [\u21E7])", L"Show Key & Click Badges"));
+    AppendMenuW(appearanceMenu, MF_STRING | (app.settings.soundEnabled ? MF_CHECKED : 0), CMD_TOGGLE_SOUND, tr(L"\u8F7B\u97F3\u6548\uFF08\u6309\u952E\u300C\u54D2\u300D/ \u547C\u565C\uFF09", L"Soft sounds (key click / purr)"));
     AppendMenuW(appearanceMenu, MF_STRING | (app.settings.showKeyLegends ? MF_CHECKED : 0), CMD_TOGGLE_KEY_LEGENDS, tr(L"\u663E\u793A\u952E\u76D8\u5B57\u7B26", L"Show Keycap Legends"));
     AppendMenuW(appearanceMenu, MF_STRING | (app.settings.keyboardMarquee ? MF_CHECKED : 0), CMD_TOGGLE_MARQUEE, tr(L"\u952E\u76D8\u8DD1\u9A6C\u706F\u6D41\u5149", L"Keyboard RGB Marquee"));
 
@@ -1878,6 +1954,11 @@ void showContextMenu(AppState& app, POINT screenPt) {
             if (app.remind.inDnd(nowSeconds())) app.remind.cancelDnd();
             else app.remind.startDnd(nowSeconds(), 3600.0);
             break;
+        case CMD_TOGGLE_SOUND:
+            app.settings.soundEnabled = !app.settings.soundEnabled;
+            app.settings.saveToRegistry();
+            if (app.settings.soundEnabled) tama_sound::play(tama_sound::clickWav());
+            break;
         case CMD_FEED_TREAT:
             app.physics.feed();
             app.physics.addPawPrint({ 150.0f, 268.0f });
@@ -1948,8 +2029,12 @@ void moveWindowRandomly(AppState& app) {
     int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
     int maxX = std::max((int)work.left, (int)work.right - ww);
     int maxY = std::max((int)work.top, (int)work.bottom - wh - 40);
-    int tx = work.left + (int)((double)rand() / RAND_MAX * (maxX - work.left));
-    int ty = work.top + (int)((double)rand() / RAND_MAX * (maxY - work.top));
+    // 自然一点：优先横向移动、单次距离不超过 260px，避免满屏乱飞
+    int baseX = wr.left, baseY = wr.top;
+    int dir = (rand() % 2 == 0) ? 1 : -1;
+    int dist = 110 + (int)(rand() % 150);
+    int tx = std::clamp(baseX + dir * dist, (int)work.left, maxX);
+    int ty = std::clamp(baseY + (int)(rand() % 90) - 45, (int)work.top, maxY);
     app.wandering = true;
     app.wanderStart = nowSeconds();
     app.wanderFrom = { wr.left, wr.top };
@@ -2051,6 +2136,31 @@ void tickAndRender(AppState& app) {
         }
     }
 
+#ifdef KC_DEMO_FALL
+    {
+        static int stageF = 0;
+        static double t0f = 0.0;
+        double nf = nowSeconds();
+        if (t0f <= 0.0) t0f = nf;
+        double elf = nf - t0f;
+        if (stageF == 0 && elf > 1.5) {
+            stageF = 1;
+            RECT wf{}; GetWindowRect(app.hwnd, &wf);
+            RECT wk{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wk, 0);
+            int upY = std::max((int)wk.top, (int)wf.top - 320);
+            SetWindowPos(app.hwnd, nullptr, wf.left, upY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            app.settings.posY = upY;
+            app.falling = true; app.fallVel = 0.0; app.fallBounces = 0;
+            if (getenv("KC_FALL_LOG")) {
+                FILE* f2 = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\fall-debug.log", "a");
+                if (f2) { fprintf(f2, "START from y=%d upY=%d ground=%d\n", (int)wf.top, upY, (int)wk.bottom - (int)(wf.bottom - wf.top)); fclose(f2); }
+            }
+            app.fallX = wf.left;
+            app.fallGroundY = (int)wk.bottom - (int)(wf.bottom - wf.top);
+        }
+    }
+#endif
+
 #ifdef KC_DEMO_INTERACT
     {
         static int stage = 0;
@@ -2116,6 +2226,39 @@ void tickAndRender(AppState& app) {
         }
     }
 
+    // ---- 抚摸呼噜（v0.11）----
+    if (app.settings.soundEnabled && app.physics.petHeadIntensity > 0.30f) {
+        static double lastPurr = 0.0;
+        double pn = nowSeconds();
+        if (pn - lastPurr > 4.0) { lastPurr = pn; tama_sound::play(tama_sound::purrWav()); }
+    }
+
+    // ---- 重力下落（v0.11）：加速度 + 落地压扁 + 衰减反弹 ----
+    if (app.falling) {
+        app.fallVel += 2600.0 * dt;              // 重力加速度（像素/秒²）
+        { FILE* dbf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\fall-debug.log", "a");
+          if (dbf) { fprintf(dbf, "vy=%.1f posY=%d ground=%d\n", app.fallVel, app.settings.posY, app.fallGroundY); fclose(dbf); } }
+        double ny = (double)app.settings.posY + app.fallVel * dt;
+        int y = (int)ny;
+        if (y >= app.fallGroundY) {
+            y = app.fallGroundY;
+            app.settings.posY = y;
+            if (app.fallVel > 260.0 && app.fallBounces < 2) {
+                app.fallVel = -app.fallVel * 0.32;   // 反弹衰减
+                app.fallBounces++;
+                app.physics.bodySquash.velocity -= 2.2f;   // 落地压扁
+                app.physics.earTwitch.velocity += 1.8f;
+            } else {
+                app.falling = false;
+                app.fallVel = 0.0;
+                app.physics.bodySquash.velocity -= 1.4f;
+            }
+        } else {
+            app.settings.posY = y;
+        }
+        SetWindowPos(app.hwnd, nullptr, app.settings.posX, app.settings.posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
     // ---- 漫步动画 / 电量 / 夜间（v0.10）----
     {
         double enow = nowSeconds();
@@ -2139,8 +2282,10 @@ void tickAndRender(AppState& app) {
         // 2) 空闲 100 秒后偶尔自己溜达（2-4 分钟一次）
         if (enow - app.lastWanderCheck > 5.0) {
             app.lastWanderCheck = enow;
-            bool idle = (enow - app.input.lastKeyActivityTime > 100.0) && (enow - app.input.lastMouseMoveTime > 100.0);
-            if (idle && !app.isDragging && !app.wandering && app.nextAutoWander <= 0.0) {
+            bool idle = (enow - app.input.lastKeyActivityTime > 100.0) &&
+                        (enow - app.input.lastMouseMoveTime > 100.0) &&
+                        !app.isDragging && !app.falling;
+            if (idle && !app.wandering && app.nextAutoWander <= 0.0) {
                 app.nextAutoWander = enow + 120.0 + (double)(rand() % 120);
             }
             if (app.nextAutoWander > 0.0 && enow >= app.nextAutoWander) {
@@ -2439,7 +2584,22 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             if (app && app->isDragging) {
                 app->isDragging = false;
-                app->physics.setDragging(false);
+            app->physics.setDragging(false);
+            // 松手：如果离地面还有距离，就按重力落下（真实一点，不是瞬间归位）
+            {
+                RECT wrNow{};
+                GetWindowRect(hwnd, &wrNow);
+                RECT workArea{};
+                SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+                int groundY = (int)workArea.bottom - (wrNow.bottom - wrNow.top);
+                if (wrNow.top < groundY - 8) {
+                    app->falling = true;
+                    app->fallVel = 0.0;
+                    app->fallX = wrNow.left;
+                    app->fallGroundY = groundY;
+                    app->fallBounces = 0;
+                }
+            }
                 ReleaseCapture();
                 RECT wr = {};
                 GetWindowRect(hwnd, &wr);
@@ -2733,6 +2893,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     AppState app;
     g_app = &app;
     app.settings.loadFromRegistry();
+    // 调试：--demo-fall 把窗口抬到上方并开启自由落体（用于验证重力/落地）
+    const bool demoFall = commandLineHasFlag(L"--demo-fall");
     app.skins.reload();
     app.isElevated = isCurrentProcessElevated();
 
@@ -2748,6 +2910,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     }
 
     g_msgTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+
+    if (getenv("KC_DUMP_SOUND")) {
+        auto dump = [](const std::vector<BYTE>& w, const char* path) {
+            FILE* f = fopen(path, "wb");
+            if (f) { fwrite(w.data(), 1, w.size(), f); fclose(f); }
+        };
+        dump(tama_sound::clickWav(), "D:\\kaifa\\work\\kurocat-own\\dist\\click.wav");
+        dump(tama_sound::purrWav(), "D:\\kaifa\\work\\kurocat-own\\dist\\purr.wav");
+    }
 
     Gdiplus::GdiplusStartupInput gdipInput;
     ULONG_PTR gdipToken = 0;
@@ -2765,6 +2936,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
                                       held.count(PhysicalKey::LeftOption) > 0 || held.count(PhysicalKey::RightOption) > 0,
                                       held.count(PhysicalKey::LeftCommand) > 0 || held.count(PhysicalKey::RightCommand) > 0);
         app.physics.triggerKeyDown(k, app.settings);
+        if (app.settings.soundEnabled) {
+            static double lastClick = 0.0;
+            double cn = nowSeconds();
+            if (cn - lastClick > 0.028) { lastClick = cn; tama_sound::play(tama_sound::clickWav()); }
+        }
     };
     app.input.onMouseClick = [&](int btn, bool down) { app.physics.triggerMouseClick(btn, down, app.settings); };
     app.input.onWheel = [&](int delta) { app.physics.triggerWheel(delta, app.settings); };
@@ -2857,6 +3033,15 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.lastTickTime = nowSeconds();
     tickAndRender(app);
     app.nextFrameTime = nowSeconds() + FRAME_INTERVAL;
+    if (demoFall) {
+        RECT wf{}; GetWindowRect(app.hwnd, &wf);
+        RECT wk{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wk, 0);
+        int upY = (int)wk.top + 40;
+        SetWindowPos(app.hwnd, nullptr, 200, upY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        app.settings.posX = 200; app.settings.posY = upY;
+        app.falling = true; app.fallVel = 0.0; app.fallBounces = 0;
+        app.fallGroundY = (int)wk.bottom - (int)(wf.bottom - wf.top);
+    }
     SetTimer(app.hwnd, TIMER_RENDER, 16, nullptr);
 
     // Frame loop. WM_TIMER is only generated when the queue is empty, so a 1000-8000 Hz gaming mouse
