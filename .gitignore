@@ -37,3 +37,6 @@ dist/frame-*.bmp
 dist/look.png
 dist/f_*
 dist/*.png
+dist/*.wav
+dist/fall-debug.log
+dist/fall.log
