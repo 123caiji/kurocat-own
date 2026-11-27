@@ -53,7 +53,7 @@ using std::max;
 
 namespace {
 
-constexpr const wchar_t* APP_VERSION = L"0.7.0";
+constexpr const wchar_t* APP_VERSION = L"0.8.0";
 constexpr const wchar_t* VERSION_PROP = L"TamaVersion"; // set on the tray owner window so newer builds can take over older ones
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"TamaTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"TamaOverlayWindowClass";
@@ -2020,13 +2020,33 @@ void tickAndRender(AppState& app) {
     }
 }
 
+/// 自适应帧间隔（移植上游 v1.5.x 思路）：活跃 60Hz、空闲 20Hz、睡眠 10Hz、隐藏 4Hz。
+/// 空闲时把一整核的 40% 降下来，是纯收益的性能改动。
+double desiredFrameInterval(const AppState& app, double now) {
+    if (!app.isVisible || app.hiddenByFullscreen) return 0.25;   // 4 Hz
+    const bool active =
+        !app.input.activeKeys.empty() ||
+        app.input.leftMouseDown || app.input.rightMouseDown || app.input.otherMouseDown ||
+        app.isDragging || app.activeResizeCorner >= 0 || app.demoActive ||
+        app.pendingMenuAfterAlt ||
+        (now - app.input.lastKeyActivityTime < 1.5) ||
+        (now - app.input.lastMouseMoveTime < 1.5) ||
+        app.physics.petHeadIntensity > 0.05f ||
+        app.physics.petBodyIntensity > 0.05f ||
+        app.physics.scruffDrag.value > 0.02f;
+    if (active) return FRAME_INTERVAL;                       // 60 Hz
+    if (app.physics.sleepiness > 0.5f) return 0.10;          // 10 Hz（睡着）
+    return 0.05;                                             // 20 Hz（醒着但空闲）
+}
+
 /// Renders at most once per FRAME_INTERVAL; called from both the main loop and WM_TIMER (the latter
 /// keeps the cat alive while a menu / message box runs its own modal loop).
 void renderIfDue(AppState& app) {
     double now = nowSeconds();
     if (now < app.nextFrameTime) return;
-    app.nextFrameTime = (now - app.nextFrameTime < FRAME_INTERVAL) ? app.nextFrameTime + FRAME_INTERVAL
-                                                                    : now + FRAME_INTERVAL;
+    // 自适应帧间隔：活跃 60Hz / 空闲 20Hz / 睡眠 10Hz / 隐藏 4Hz
+    double interval = desiredFrameInterval(app, now);
+    app.nextFrameTime = (now - app.nextFrameTime < interval) ? app.nextFrameTime + interval : now + interval;
     tickAndRender(app);
 }
 
@@ -2609,7 +2629,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     bool running = true;
     while (running) {
         double now = nowSeconds();
-        double waitSec = (app.isVisible && !app.hiddenByFullscreen) ? (app.nextFrameTime - now) : 0.25;
+        double intervalNow = desiredFrameInterval(app, now);
+        double waitSec = (app.isVisible && !app.hiddenByFullscreen) ? std::max(0.0, app.nextFrameTime - now) : 0.25;
+        if (waitSec > intervalNow) waitSec = intervalNow;   // 不睡过头
         if (waitSec > 0.0) {
             MsgWaitForMultipleObjectsEx(0, nullptr, (DWORD)(waitSec * 1000.0), QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         }
