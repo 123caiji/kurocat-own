@@ -2469,27 +2469,27 @@ void tickAndRender(AppState& app) {
     g_lastActivity = "renderer.draw";
     CatRenderer::draw(g, app.physics, app.settings, activeSkin(app));
 
-    // 呈现前重新读窗口位置：漫步/下落可能在本帧中途移动过窗口，
-    // 旧代码用 tick 开头捕获的 wr 会导致移动立刻被 UpdateLayeredWindow 覆盖
-    GetWindowRect(app.hwnd, &wr);
-    POINT ptDst = { wr.left, wr.top };
-    SIZE szWnd = { w, h };
-    POINT ptSrc = { 0, 0 };
-    BLENDFUNCTION blend = {};
-    blend.BlendOp = AC_SRC_OVER;
-    blend.SourceConstantAlpha = 255;
-    blend.AlphaFormat = AC_SRC_ALPHA;
-
-    HDC screenDC = GetDC(nullptr);
-    BOOL presented = UpdateLayeredWindow(app.hwnd, screenDC, &ptDst, &szWnd, app.memDC, &ptSrc, 0, &blend, ULW_ALPHA);
-    ReleaseDC(nullptr, screenDC);
-    if (presented) {
-        app.ulwFailures = 0;
-    } else if (++app.ulwFailures > 30) {
-        // Surface lost (typically after Win+L / display reconnect): rebuild the DIB next frame.
-        app.ulwFailures = 0;
-        app.destroyBuffer();
+    // 调试用帧采样：设置环境变量 KC_SNAP=<目录> 时按间隔落盘 BMP，便于核对真实渲染姿态（默认不生效）
+    { static int snapTick = 0; static int snapSaved = 0; const char* snapDir = getenv("KC_SNAP");
+      if (snapDir && (snapTick++ % 15) == 0 && snapSaved < 80) {
+          char fname[MAX_PATH];
+          sprintf(fname, "%s\\snap_%04d.bmp", snapDir, snapSaved++);
+          FILE* f = fopen(fname, "wb");
+          if (f) {
+              BITMAPFILEHEADER bfh = {}; BITMAPINFOHEADER bih = {};
+              bih.biSize = sizeof(BITMAPINFOHEADER); bih.biWidth = w; bih.biHeight = h;
+              bih.biPlanes = 1; bih.biBitCount = 32; bih.biCompression = BI_RGB;
+              bfh.bfType = 0x4D42; bfh.bfOffBits = sizeof(bfh) + sizeof(bih);
+              bfh.bfSize = bfh.bfOffBits + (DWORD)(w * h * 4);
+              fwrite(&bfh, sizeof(bfh), 1, f); fwrite(&bih, sizeof(bih), 1, f);
+              const BYTE* src = static_cast<const BYTE*>(app.dibBits);
+              const int stride = w * 4;
+              for (int row = h - 1; row >= 0; --row) fwrite(src + (size_t)row * stride, 1, stride, f);
+              fclose(f);
+          }
+      }
     }
+
 }
 
 /// 自适应帧间隔（移植上游 v1.5.x 思路）：活跃 60Hz、空闲 20Hz、睡眠 10Hz、隐藏 4Hz。

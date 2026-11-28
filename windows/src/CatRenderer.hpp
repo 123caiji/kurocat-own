@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include "CatPhysics.hpp"
+#include "CatSidePose.hpp"
 #include "TabbyCoat.hpp"
 #include "../../shared/CoatPatterns.hpp"
 #include "../../shared/SkinSpec.hpp"
@@ -240,6 +241,28 @@ public:
             g.TranslateTransform(seatX + fallShiftX, seatY + fallShiftY);
             g.RotateTransform(fallAngle * RadToDeg);
             g.TranslateTransform(-seatX, -seatY);
+        }
+
+        // 侧身四足：行走权重抬起时整体切换为侧身骨架（四足站立 + 对角小跑）
+        // 侧身四足：常态四足站立（wb=0），行走时按 walkBlend 混入小跑（wb=1）
+        const bool sideWalk = scruff <= 0.25f && lie <= 0.55f && dizzy <= 0.35f
+                              && !physics.isTabletActive && physics.hindFootActive.value < 0.5f;
+        if (sideWalk) {
+            catside::Params sp;
+            sp.cx          = seatX;
+            sp.groundY     = CatPhysics::WalkGroundY + 6.0f;
+            sp.wb          = poseW;
+            sp.phase       = physics.gaitPhase;
+            sp.facingRight = true;
+            sp.outlineW    = 0.0f;
+            catside::Palette pal;
+            pal.body  = col(skin.palette.body);
+            pal.iris  = eyePrimary(settings.eyeTheme);
+            pal.pupil = catBlack();
+            catside::draw(g, sp, pal);
+            g.Restore(hangState);
+            g.Restore(flipState);
+            return;
         }
 
         if (isDazed(skin)) drawDazedSword(g, seatX, seatY, physics);
