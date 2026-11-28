@@ -250,6 +250,8 @@ struct AppState {
     double wanderDur = 1.6;
     POINT wanderFrom = {};
     POINT wanderTo = {};
+    float walkX = 0.0f;              // v0.12 行走浮点位置游标：避免整数 lround 把 <0.5px 的
+    float walkY = 0.0f;              // 单帧位移舍成 0，导致距离冻结、wandering 永不复位
     double lastWanderCheck = 0.0;
     double nextAutoWander = 0.0;
     double lastBatteryWarn = 0.0;
@@ -1159,6 +1161,10 @@ void housekeeping(AppState& app) {
             app.lastTickTime = now;
             app.lastRenderTime = now;
             assertTopmost(app);
+            app.physics.walkBlend.value = 0.0f;   // 隐藏期间步态冻结，恢复时复位避免"瞬移式"迈腿
+            app.physics.walkBlend.velocity = 0.0f;
+            app.physics.gaitPhase = 0.0f;
+            app.physics.setWalkState(false, 0.0f, 0);
         }
     } else if (app.hiddenByFullscreen) {
         app.hiddenByFullscreen = false;
@@ -2040,14 +2046,14 @@ void moveWindowRandomly(AppState& app) {
         FILE* mf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
         if (mf) { fprintf(mf, "MOVE called\n"); fclose(mf); }
     }
-    if (!app.hwnd || app.wandering) return;
+    if (!app.hwnd || app.wandering || app.isDragging || app.falling || app.activeResizeCorner >= 0 || app.hiddenByFullscreen) return;
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
     RECT wr{};
     GetWindowRect(app.hwnd, &wr);
     int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
     int minX = (int)work.left, maxX = std::max((int)work.left, (int)work.right - ww);
-    int minY = (int)work.top, maxY = std::max((int)work.top, (int)work.bottom - wh - 40);
+    int minY = (int)work.top, maxY = std::max((int)work.top, (int)work.bottom - wh);   // 贴地行走
     int baseX = wr.left, baseY = wr.top;
     // 朝向屏幕中心走：贴边时不会原地打转
     int centerX = (minX + maxX) / 2;
@@ -2057,12 +2063,14 @@ void moveWindowRandomly(AppState& app) {
     if (std::abs(tx - baseX) < 100) {                // 到头了就往反方向走
         tx = std::clamp(baseX - dir * dist, minX, maxX);
     }
-    int ty = std::clamp(baseY + (int)(rand() % 60) - 30, minY, maxY);
+    int ty = std::clamp(baseY + (int)(rand() % 17) - 8, minY, maxY);   // 贴地行走：Y 仅小幅起伏
     app.wandering = true;
     app.wanderStart = nowSeconds();
     app.wanderDur = 2.2;                             // 慢一点，像走过去而不是瞬移
     app.wanderFrom = { wr.left, wr.top };
     app.wanderTo = { tx, ty };
+    app.walkX = (float)wr.left;                      // 浮点游标与真实窗口位置对齐
+    app.walkY = (float)wr.top;
     if (getenv("KC_WANDER_LOG")) {
         FILE* tf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
         if (tf) { fprintf(tf, "TARGET from=(%d,%d) to=(%d,%d) dur=%.1f start=%.1f\n", wr.left, wr.top, tx, ty, app.wanderDur, app.wanderStart); fclose(tf); }
@@ -2283,68 +2291,63 @@ void tickAndRender(AppState& app) {
         if (pn - lastPurr > 4.0) { lastPurr = pn; tama_sound::play(tama_sound::purrWav()); }
     }
 
-    // ---- 重力下落（v0.11）：加速度 + 落地压扁 + 衰减反弹 ----
-    if (app.falling) {
-        app.fallVel += 2600.0 * dt;              // 重力加速度（像素/秒²）
-        { FILE* dbf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\fall-debug.log", "a");
-          if (dbf) { fprintf(dbf, "vy=%.1f posY=%d ground=%d\n", app.fallVel, app.settings.posY, app.fallGroundY); fclose(dbf); } }
-        double ny = (double)app.settings.posY + app.fallVel * dt;
-        int y = (int)ny;
-        if (y >= app.fallGroundY) {
-            y = app.fallGroundY;
-            app.settings.posY = y;
-            if (app.fallVel > 260.0 && app.fallBounces < 2) {
-                app.fallVel = -app.fallVel * 0.32;   // 反弹衰减
-                app.fallBounces++;
-                app.physics.bodySquash.velocity -= 2.2f;   // 落地压扁
-                app.physics.earTwitch.velocity += 1.8f;
-            } else {
-                app.falling = false;
-                app.fallVel = 0.0;
-                app.physics.bodySquash.velocity -= 1.4f;
-            }
-        } else {
-            app.settings.posY = y;
-        }
-        {
-                    static double lastFallMove = 0.0;
-                    double fn = nowSeconds();
-                    if (fn - lastFallMove > 0.016) {
-                        lastFallMove = fn;
-                        SetWindowPos(app.hwnd, nullptr, app.settings.posX, app.settings.posY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-                    }
-                }
-    }
 
     // ---- 漫步动画 / 电量 / 夜间（v0.10）----
     {
         double enow = nowSeconds();
-        // 1) 漫步：每 16ms 朝目标走最多 5px（步进式，状态简单可靠）
+        // 1) 四足行走：dt 驱动的位移（巡航 34 画布单位/秒），起步 0.2s 加速、到位前减速
         if (app.wandering) {
             RECT wnow{}; GetWindowRect(app.hwnd, &wnow);
-            int dx = app.wanderTo.x - wnow.left;
-            int dy = app.wanderTo.y - wnow.top;
-            int adx = std::abs(dx), ady = std::abs(dy);
-            if (adx <= 5 && ady <= 5) {
+            // v0.12 修复「走几步就卡死」：
+            //   旧实现 remX/remY 取整数窗口坐标，且 slow = min(1, dist/(34*winScale)) 让 speedPx
+            //   退化成 ≈dist/秒；当单帧位移 <0.5px 时 lround 把它舍成 0，位移与 dist 双双冻结，
+            //   dist 永远降不到 1.5px 吸附阈值，wandering 永不复位（日志表现为持续 wandering=1）。
+            //   现改为：浮点游标 walkX/walkY 累积位移 + 减速下限 + 浮点到位判定 + 超时兜底。
+            float remX = (float)app.wanderTo.x - app.walkX;
+            float remY = (float)app.wanderTo.y - app.walkY;
+            float dist = std::sqrt(remX * remX + remY * remY);
+            float winScale = std::max(0.2f, (float)w / CatPhysics::CanvasWidth);
+            const float cruise = 34.0f;                                            // 巡航速度（画布单位/秒）
+            float ramp = std::min(1.0f, (float)(enow - app.wanderStart) / 0.20f);  // 起步行加速
+            // 到位前减速：最低保留 22% 速度（约 7.5 画布单位/秒），保证减速段始终有非零位移
+            float slow = std::clamp(dist / (34.0f * winScale), 0.22f, 1.0f);
+            float speedPx = cruise * winScale * std::min(ramp, slow);
+            float stepLen = speedPx * (float)dt;                                   // 本帧期望位移（像素）
+            double elapsed = enow - app.wanderStart;
+            // 浮点到位判定：剩余 <=1.5px，或本帧位移已覆盖剩余距离，或 12s 超时强制收尾
+            bool arrived = (dist <= 1.5f) || (stepLen >= dist) || (elapsed > 12.0);
+            if (arrived) {
+                app.walkX = (float)app.wanderTo.x;
+                app.walkY = (float)app.wanderTo.y;
                 SetWindowPos(app.hwnd, nullptr, app.wanderTo.x, app.wanderTo.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                 app.settings.posX = app.wanderTo.x;
                 app.settings.posY = app.wanderTo.y;
                 app.wandering = false;
+                app.physics.setWalkState(false, 0.0f, 0);
                 app.physics.addPawPrint({ 200.0f, 300.0f });
+                if (getenv("KC_WANDER_LOG")) {
+                    FILE* sf3 = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
+                    if (sf3) { fprintf(sf3, "ARRIVE at=(%d,%d) dist=%.2f elapsed=%.2f timeout=%d\n", app.wanderTo.x, app.wanderTo.y, dist, elapsed, (elapsed > 12.0) ? 1 : 0); fclose(sf3); }
+                }
             } else {
+                app.walkX += remX / dist * stepLen;
+                app.walkY += remY / dist * stepLen;
+                int nx = (int)std::lround(app.walkX);
+                int ny = (int)std::lround(app.walkY);
+                SetWindowPos(app.hwnd, nullptr, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                app.settings.posX = nx;
+                app.settings.posY = ny;
+                int dirX = (remX > 1.0f) ? 1 : ((remX < -1.0f) ? -1 : 0);
+                app.physics.setWalkState(true, speedPx / winScale, dirX);   // 步频与速度挂钩
                 if (getenv("KC_WANDER_LOG")) {
                     FILE* sf2 = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
-                    if (sf2) { HWND fw = FindWindowW(nullptr, L"Tama"); RECT fr{}; if (fw) GetWindowRect(fw, &fr); fprintf(sf2, "STEP cur=(%d,%d) to=(%d,%d) hwnd=%p vis=%d find=%p findRect=(%d,%d)\n", (int)wnow.left, (int)wnow.top, app.wanderTo.x, app.wanderTo.y, (void*)app.hwnd, IsWindowVisible(app.hwnd) ? 1 : 0, (void*)fw, (int)fr.left, (int)fr.top); fclose(sf2); }
+                    if (sf2) { fprintf(sf2, "STEP cur=(%d,%d) fx=%.2f fy=%.2f to=(%d,%d) dist=%.1f speed=%.1f\n", (int)wnow.left, (int)wnow.top, app.walkX, app.walkY, app.wanderTo.x, app.wanderTo.y, dist, speedPx); fclose(sf2); }
                 }
-                int sx = (dx > 0 ? 5 : (dx < 0 ? -5 : 0));
-                int sy = (dy > 0 ? 3 : (dy < 0 ? -3 : 0));
-                SetWindowPos(app.hwnd, nullptr, wnow.left + sx, wnow.top + sy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-                app.physics.bodyShiftX.target = (float)(sx > 0 ? 5.0 : -5.0);
-                app.physics.bodyTilt.target = (float)(sx > 0 ? 0.05 : -0.05);
+                static int stepCount = 0;
+                if (++stepCount % 26 == 0) app.physics.addPawPrint({ 120.0f + (float)(rand() % 120), 296.0f });
             }
-            // 走两步留一个爪印（有走动痕迹）
-            static int stepCount = 0;
-            if (++stepCount % 30 == 0) app.physics.addPawPrint({ 120.0f + (float)(rand() % 120), 296.0f });
+        } else {
+            app.physics.setWalkState(false, 0.0f, 0);
         }
         // 2) 空闲后自己溜达（默认开启；KC_WANDER_QUICK=1 时切换到秒级便于测试）
             if (getenv("KC_WANDER_LOG")) {
@@ -2359,7 +2362,7 @@ void tickAndRender(AppState& app) {
             const double idleNeed = quick ? 4.0 : 120.0;
             bool idle = (enow - app.input.lastKeyActivityTime > idleNeed) &&
                         (enow - app.input.lastMouseMoveTime > (quick ? 4.0 : 45.0)) &&
-                        !app.isDragging && !app.falling;
+                        !app.isDragging && !app.falling && app.physics.deskBlend.value < 0.5f;  // 工作台摊开时锁死不溜达
             if (app.settings.wanderEnabled && idle && !app.wandering && app.nextAutoWander <= 0.0) {
                 app.nextAutoWander = enow + (quick ? 3.0 : (180.0 + (double)(rand() % 180)));
             }
@@ -2404,7 +2407,10 @@ void tickAndRender(AppState& app) {
     }
 
     // Smart Click-Through + Petting Detection
+    // 行走本帧刚移动过窗口时，wr 仍是本帧早先读到的旧矩形，命中测试/穿透判定会滞后一帧，
+    // 这里刷新一次实际窗口矩形再判断。
     if (!app.isDragging && app.activeResizeCorner < 0) {
+        GetWindowRect(app.hwnd, &wr);
         POINT cur = {};
         GetCursorPos(&cur);
         if (PtInRect(&wr, cur)) {
@@ -2417,7 +2423,9 @@ void tickAndRender(AppState& app) {
                 setClickThrough(app.hwnd, editHit < 0);
                 app.hasLastHover = false;
             } else {
-                Pt cp = app.settings.flipHorizontal ? Pt{ CatPhysics::CanvasWidth - rawCp.x, rawCp.y } : rawCp;
+                bool walkFlipHit = app.physics.walkBlend.value >= 0.05f && app.physics.walkFacingLeft;
+                bool effFlipHit = (app.settings.flipHorizontal != walkFlipHit);
+                Pt cp = effFlipHit ? Pt{ CatPhysics::CanvasWidth - rawCp.x, rawCp.y } : rawCp;
                 CatHitZone zone = CatRenderer::hitTest(cp, app.physics, activeSkin(app));
                 app.physics.updateTailHover(&cp);
                 if (zone == CatHitZone::Head) {
@@ -2497,7 +2505,8 @@ double desiredFrameInterval(const AppState& app, double now) {
         (now - app.input.lastMouseMoveTime < 1.5) ||
         app.physics.petHeadIntensity > 0.05f ||
         app.physics.petBodyIntensity > 0.05f ||
-        app.physics.scruffDrag.value > 0.02f;
+        app.physics.scruffDrag.value > 0.02f ||
+        app.wandering || app.physics.walkBlend.value > 0.01f;
     if (active) return FRAME_INTERVAL;                       // 60 Hz
     if (app.physics.sleepiness > 0.5f) return 0.10;          // 10 Hz（睡着）
     return 0.05;                                             // 20 Hz（醒着但空闲）
@@ -2646,7 +2655,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 int ny = app->dragStartWinOrigin.y + (cur.y - app->dragStartCursor.y);
                 float stepDx = (float)(nx - wr.left);
                 float stepDy = (float)(ny - wr.top);
-                app->physics.setDragging(true, app->settings.flipHorizontal ? -stepDx : stepDx, stepDy);
+                app->physics.setDragging(true, ((app->settings.flipHorizontal != (app->physics.walkBlend.value >= 0.05f && app->physics.walkFacingLeft)) ? -stepDx : stepDx), stepDy);
                 SetWindowPos(hwnd, nullptr, nx, ny, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
             return 0;
@@ -2665,21 +2674,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (app && app->isDragging) {
                 app->isDragging = false;
             app->physics.setDragging(false);
-            // 松手：如果离地面还有距离，就按重力落下（真实一点，不是瞬间归位）
-            {
-                RECT wrNow{};
-                GetWindowRect(hwnd, &wrNow);
-                RECT workArea{};
-                SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
-                int groundY = (int)workArea.bottom - (wrNow.bottom - wrNow.top);
-                if (wrNow.top < groundY - 8) {
-                    app->falling = true;
-                    app->fallVel = 0.0;
-                    app->fallX = wrNow.left;
-                    app->fallGroundY = groundY;
-                    app->fallBounces = 0;
-                }
-            }
                 ReleaseCapture();
                 RECT wr = {};
                 GetWindowRect(hwnd, &wr);
@@ -2996,8 +2990,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     AppState app;
     g_app = &app;
     app.settings.loadFromRegistry();
-    // 调试：--demo-fall 把窗口抬到上方并开启自由落体（用于验证重力/落地）
-    const bool demoFall = commandLineHasFlag(L"--demo-fall");
     const bool wanderTest = commandLineHasFlag(L"--wander-test");
     app.skins.reload();
     app.isElevated = isCurrentProcessElevated();
@@ -3138,15 +3130,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.lastTickTime = nowSeconds();
     tickAndRender(app);
     app.nextFrameTime = nowSeconds() + FRAME_INTERVAL;
-    if (demoFall) {
-        RECT wf{}; GetWindowRect(app.hwnd, &wf);
-        RECT wk{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wk, 0);
-        int upY = (int)wk.top + 40;
-        SetWindowPos(app.hwnd, nullptr, 200, upY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-        app.settings.posX = 200; app.settings.posY = upY;
-        app.falling = true; app.fallVel = 0.0; app.fallBounces = 0;
-        app.fallGroundY = (int)wk.bottom - (int)(wf.bottom - wf.top);
-    }
     SetTimer(app.hwnd, TIMER_RENDER, 16, nullptr);
 
     // Frame loop. WM_TIMER is only generated when the queue is empty, so a 1000-8000 Hz gaming mouse

@@ -233,10 +233,44 @@ public:
     static constexpr Pt HindFootRest    = { 214.0f, 234.0f };
     static constexpr Pt MouseBaseCenter = { 78.0f, 258.0f };
 
+    // ---- 四足姿态 walkPose（P1）：正面视角下把躯干抬起、四条腿等长落地 ----
+    // 全部以 walkBlend 为闸：wb==0 时无任何影响（坐姿像素级不变）
+    static constexpr float WalkSeatDY      = -26.0f;  // seat 相对坐姿上移（226 → 200）
+    static constexpr float WalkGroundY     = 250.0f;  // 四足统一落地点
+    static constexpr float WalkShoulderDY  = 20.0f;   // 前肩相对 walk seat（腿长 = 250-220 = 30）
+    static constexpr float WalkHipDY       = 22.0f;   // 后髋相对 walk seat（腿长 = 250-222 = 28）
+    static constexpr float WalkFootReachF  = 15.0f;   // 前爪 Rest 下探（235 → 250）
+    static constexpr float WalkFootReachH  = 13.0f;   // 后爪 Rest 下探（237 → 250）
+    static constexpr float WalkHeadDY      = -20.0f;  // 头部随躯干上移量（略低于躯干，形成低头走路）
+
     Spring2D leftPaw{LeftPawRest};
     Spring2D rightPaw{RightPawRest};
     Spring2D hindFoot{HindFootRest};
     Spring1D hindFootActive{0.0f};
+
+    // ---- 四足行走步态（v0.12）----
+    static constexpr Pt BackLeftPawRest  = { 158.0f, 237.0f };
+    static constexpr Pt BackRightPawRest = { 210.0f, 238.0f };
+    Spring2D backLeftPaw{BackLeftPawRest};
+    Spring2D backRightPaw{BackRightPawRest};
+    Spring1D walkBlend{0.0f};
+    Spring1D deskBlend{0.0f};      // 工作台（键盘+鼠标+桌面垫）摊开权重：0=收起 / 1=摊开
+    float deskIdleSec_ = 999.0f;  // 真实键鼠输入静默计时（秒）：启动即视为长期静默，工作台默认收起      // 行走权重：走动 1 / 静止 0
+    float gaitPhase = 0.0f;        // 步态相位（弧度）
+    float walkBob = 0.0f;          // 行走时身体上下起伏（画布单位）
+    float walkSpeedCanvas = 0.0f;  // 当前行走速度（画布单位/秒）
+    int   walkDirX = 0;            // +1 向右 / -1 向左 / 0 停
+    bool  walking = false;         // 由 main 每帧写入
+    bool  walkFacingLeft = false;  // 行走朝向（渲染/命中/拖拽共用）
+
+    /// 由 main 每帧写入行走状态；从静止进入行走时重置相位，避免恢复后瞬移。
+    void setWalkState(bool active, float canvasSpeedPerSec, int dirX) {
+        if (active && !walking) gaitPhase = 0.0f;
+        walking = active;
+        walkSpeedCanvas = active ? std::max(0.0f, canvasSpeedPerSec) : 0.0f;
+        walkDirX = active ? dirX : 0;
+        if (active && dirX != 0) walkFacingLeft = (dirX < 0);
+    }
     Spring2D tailTip{{275.0f, 196.0f}};
     Spring1D tailTyping{0.0f};
     Spring2D tailFlick{{0.0f, 0.0f}};
@@ -251,6 +285,7 @@ public:
     Spring1D bodyShiftX{0.0f};
     Spring1D bodyTilt{0.0f};
     Spring1D bodySquash{1.0f};
+    Spring1D bodyRoll{0.0f};      // 四足行走的左右重心转移（弧度，±0.052 ≈ ±3°）
     Spring1D headTilt{0.0f};
     Spring1D headYaw{0.0f};
     Spring1D headPitch{0.0f};
@@ -345,6 +380,7 @@ public:
 
     void triggerKeyDown(PhysicalKey key, const CatSettings& settings) {
         double now = nowSeconds();
+        deskIdleSec_ = 0.0f;   // 真实按键：工作台立即摊开
         PhysicalKey vk = visualKeyOf(key);
         keyGlow[vk] = 1.0f;
 
@@ -474,6 +510,7 @@ public:
 
     void triggerMouseClick(int button, bool isDown, const CatSettings& settings) {
         sleepiness = 0.0f;
+        deskIdleSec_ = 0.0f;   // 真实鼠标操作：工作台立即摊开
         if (isDown) {
             double now = nowSeconds();
             if (button == 0) {
@@ -966,6 +1003,73 @@ public:
         tailCurl.step(dt, 135.0f, 10.5f);
         tailAgility.step(dt, 40.0f, 10.0f);
 
+        // ---- 工作台摊开/收起：真实键鼠输入即就地摊开，静默 8s 变暗、45s 收起，四足行走强制收起 ----
+    deskIdleSec_ += dt;
+    {
+        float deskTarget = (deskIdleSec_ > 45.0f) ? 0.0f : (deskIdleSec_ > 8.0f ? 0.55f : 1.0f);
+        if (walking) deskTarget = 0.0f;
+        deskBlend.target = deskTarget;
+        deskBlend.step(dt, 55.0f, 13.0f);   // 约 0.35s 到位
+    }
+
+    // ---- 行走步态：对角小跑（LF+RH 同相 / RF+LH 反相），用 walkBlend 在静/动目标之上插值 ----
+        {
+            float gate = (walking && scruff <= 0.24f && dizzy <= 0.35f && lie <= 0.45f) ? 1.0f : 0.0f;
+            walkBlend.target = gate;
+            walkBlend.step(dt, 200.0f, 22.0f);
+            float wb = std::clamp(walkBlend.value, 0.0f, 1.0f);
+            float freq = std::clamp(1.10f + walkSpeedCanvas * 0.024f, 1.55f, 2.05f);  // 步频 1.55~2.05Hz，比原先慢一档，步子迈得更开
+            if (gate > 0.5f) {
+                gaitPhase = std::fmod(gaitPhase + dt * freq * 6.2831853f, 6.2831853f);
+            }
+            walkBob = wb * std::sin(gaitPhase * 2.0f + 0.6f) * 1.1f;
+            // 四足重心左右转移：与步频同步的 ±3° 滚转，wb=0 时归零
+            bodyRoll.target = wb * std::sin(gaitPhase) * 0.052f;
+            if (wb > 0.002f) {
+                const float kPi     = 3.14159265f;
+                const float kDuty   = 0.62f;   // 支撑相占整周期比例（trot 60% 左右最稳）
+                const float liftF   = 7.0f;    // 前爪抬腿高度（画布单位，向上为负）；抬得太低时前腿像根竖杆在抖
+                const float liftH   = 6.0f;    // 后爪抬腿高度
+                // 步幅按真实速度反推：支撑相内脚掌必须恰好以体速后移，否则就是滑步/踩空。
+                // 再乘 1.15 补偿弹簧滞后：脚掌实际只跑出目标幅度的约八成，不补就会踩不上体速。
+                float halfStride = std::clamp(walkSpeedCanvas / freq * kDuty * 0.5f, 2.0f, 8.0f) * 1.15f;
+                auto gaitPoint = [&](Pt rest, float phase, float lift) {
+                    float c = std::fmod(phase, 6.2831853f);
+                    if (c < 0.0f) c += 6.2831853f;
+                    float u = c / 6.2831853f;
+                    float dx, dy;
+                    if (u < kDuty) {                       // 支撑相：脚掌贴地，由前向后
+                        float s = u / kDuty;
+                        dx = halfStride * (1.0f - 2.0f * s);
+                        dy = 0.0f;
+                    } else {                               // 摆动相：抬脚离地，由后向前
+                        float s = (u - kDuty) / (1.0f - kDuty);
+                        float e = s * s * (3.0f - 2.0f * s);
+                        dx = -halfStride + 2.0f * halfStride * e;
+                        dy = -lift * std::sin(kPi * s);
+                    }
+                    return Pt{ rest.x + dx * wb, rest.y + dy * wb };
+                };
+                // 四足落地点：脚掌 Rest 随 walkBlend 下探到统一地平面 WalkGroundY（wb=0 时与坐姿完全一致）
+                // 后爪同时外摆，跟外扩后的后髋对齐，避免腿斜成劈叉
+                Pt fRestL = { LeftPawRest.x,       LeftPawRest.y       + wb * WalkFootReachF };
+                Pt fRestR = { RightPawRest.x,      RightPawRest.y      + wb * WalkFootReachF };
+                Pt hRestL = { BackLeftPawRest.x  - wb * 20.0f, BackLeftPawRest.y  + wb * WalkFootReachH };
+                Pt hRestR = { BackRightPawRest.x + wb * 20.0f, BackRightPawRest.y + wb * WalkFootReachH };
+                // 行走时左前爪若正在鼠标/数位笔跟随，不要用步态点覆盖它的 target，
+                // 否则行走期间的鼠标反馈会被步态顶掉（键盘键入态同理）。
+                if (!leftPawTyping && !leftPawOnMouse) leftPaw.setTarget(gaitPoint(fRestL, gaitPhase, liftF));
+                if (!rightPawTyping) rightPaw.setTarget(gaitPoint(fRestR, gaitPhase + kPi, liftF));
+                backLeftPaw.setTarget(gaitPoint(hRestL, gaitPhase + kPi, liftH));
+                backRightPaw.setTarget(gaitPoint(hRestR, gaitPhase, liftH));
+            } else {
+                backLeftPaw.setTarget(BackLeftPawRest);
+                backRightPaw.setTarget(BackRightPawRest);
+            }
+            backLeftPaw.step(dt, 620.0f, 34.0f);
+            backRightPaw.step(dt, 620.0f, 34.0f);
+        }
+
         leftPaw.step(dt, 360.0f, 24.0f);
         rightPaw.step(dt, 360.0f, 24.0f);
         hindFoot.step(dt, 320.0f, 22.0f);
@@ -973,7 +1077,9 @@ public:
 
         // 4. Body lean, squash & ear motion
         float targetShiftX = 0.0f, targetBodyTilt = 0.0f;
-        if (leftPawOnMouse && !rightPawTyping) {
+        // 行走时不再施加“按在鼠标上”的固定左倾（-10px / -0.075 弧度），交给步态 bob；
+        // 否则边走边动鼠标时身体会一直歪着。
+        if (leftPawOnMouse && !rightPawTyping && walkBlend.value < 0.30f) {
             targetShiftX = -10.0f;
             targetBodyTilt = -0.075f;
         } else if (leftPawOnMouse && rightPawTyping) {
@@ -995,6 +1101,7 @@ public:
 
         bodyShiftX.step(dt, 140.0f, 18.0f);
         bodyTilt.step(dt, 140.0f, 18.0f);
+        bodyRoll.step(dt, 150.0f, 19.0f);
         bodySquash.step(dt, 280.0f, 18.0f);
         headOffsetY.step(dt, 180.0f, 19.0f);
         earFold.step(dt, 120.0f, 16.0f);
@@ -1074,7 +1181,7 @@ public:
         float kpmBoost = std::min(2.4f, (float)engine.currentKPM() / 160.0f);
         float petBoost = std::max(petHeadIntensity, petBodyIntensity) * 1.4f;
         float agilityBoost = std::clamp(tailAgility.value, 0.0f, 1.0f) * 3.2f;
-        float tailSpeed = 1.85f + kpmBoost + petBoost + hunt * 2.8f + anger * 3.5f + agilityBoost - sleepiness * 1.1f;
+        float tailSpeed = 1.85f + kpmBoost + petBoost + hunt * 2.8f + anger * 3.5f + agilityBoost - sleepiness * 1.1f + std::clamp(walkBlend.value, 0.0f, 1.0f) * 1.5f;
         tailPhase += dt * tailSpeed;
 
         // 8. Keycap glow decay

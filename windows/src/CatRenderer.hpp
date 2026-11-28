@@ -146,12 +146,15 @@ public:
         g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
 
         GraphicsState flipState = g.Save();
-        if (settings.flipHorizontal) {
+        // 行走时按移动方向额外翻转一次：用户镜像设置与行走朝向取异或
+        bool walkFlip = physics.walkBlend.value >= 0.05f && physics.walkFacingLeft;
+        if (settings.flipHorizontal != walkFlip) {
             g.TranslateTransform(CatPhysics::CanvasWidth, 0.0f);
             g.ScaleTransform(-1.0f, 1.0f);
         }
 
         float breath = std::sin(physics.time * 2.1f) * 1.6f;
+        float poseW = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);   // 四足姿态总闸：0=坐姿
         float seatX = CatPhysics::SeatAnchor.x + physics.bodyShiftX.value;
         float scruff = std::clamp(physics.scruffDrag.value, 0.0f, 1.0f);
         float lie = std::clamp(physics.lieIntensity.value, 0.0f, 1.0f);
@@ -163,7 +166,8 @@ public:
 
         // 后颈悬空：起吊高度用 smoothstep，避免线性生硬（对齐上游手感）
         float scruffS = scruff * scruff * (3.0f - 2.0f * scruff);
-        float seatY = CatPhysics::SeatAnchor.y - scruffS * 44.0f + lieS * 10.0f + physics.scruffSwingY.value * 6.0f;
+        float seatY = CatPhysics::SeatAnchor.y - scruffS * 44.0f + lieS * 10.0f + physics.scruffSwingY.value * 6.0f + physics.walkBob
+                    + poseW * CatPhysics::WalkSeatDY;
         float fallAngle = -dizzyFall * 1.46f + std::sin(physics.time * 9.5f) * 0.16f * preWobble;
         float fallShiftX = dizzyFall * 56.0f;
         float fallShiftY = dizzyFall * 20.0f;
@@ -171,24 +175,39 @@ public:
         Pt headCenter = {
             seatX + physics.bodyTilt.value * 36.0f + physics.headYaw.value * 7.5f - lieS * 4.0f,
             126.0f + buildOf(skin).headLift + physics.headOffsetY.value + physics.headPitch.value * 4.8f + breath * 1.1f - scruff * 22.0f + lieS * 60.0f
+                  + poseW * CatPhysics::WalkHeadDY
         };
 
         // 1. Mini White Mouse OR Graphics Tablet (when drawing tablet/stylus is connected!)
         // 被拎起来时，桌上的鼠标/键盘随悬空度淡出（对齐上游「离开桌面」的观感）
         float scruffDeskFade = 1.0f - std::clamp(scruffS / 0.48f, 0.0f, 1.0f);
         scruffDeskFade = scruffDeskFade * scruffDeskFade * (3.0f - 2.0f * scruffDeskFade);
+        // 工作台总闸：只随真实键鼠输入摊开，四足行走/被拎起时收起
+        float deskAlpha = std::clamp(physics.deskBlend.value, 0.0f, 1.0f) * scruffDeskFade * (1.0f - poseW);
+
+        // 落座软阴影：工作台收起时给猫一个落地着力点，避免悬空观感（摊开时由键盘/桌面垫承担）
+        {
+            float shade = 1.0f - std::clamp(physics.deskBlend.value, 0.0f, 1.0f);
+            shade *= (1.0f - scruffS);
+            if (shade > 0.02f) {
+                Gdiplus::SolidBrush seatShadow(Gdiplus::Color((BYTE)std::clamp(46.0f * shade, 0.0f, 255.0f), 0, 0, 0));
+                g.FillEllipse(&seatShadow, seatX - 33.0f, 247.0f, 66.0f, 9.0f);
+                Gdiplus::SolidBrush seatShadow2(Gdiplus::Color((BYTE)std::clamp(26.0f * shade, 0.0f, 255.0f), 0, 0, 0));
+                g.FillEllipse(&seatShadow2, seatX - 21.0f, 249.0f, 42.0f, 5.0f);
+            }
+        }
 
         if (physics.isTabletActive) {
-            drawTablet(g, physics, settings.keyboardTheme, settings.eyeTheme);
+            drawWithLayerAlpha(g, deskAlpha, [&](Gdiplus::Graphics& lg) { drawTablet(lg, physics, settings.keyboardTheme, settings.eyeTheme); });
             if (!physics.leftPawOnMouse || scruff > 0.25f || dizzy > 0.35f || lie > 0.45f) {
                 drawParkedStylus(g, settings.keyboardTheme, settings.eyeTheme);
             }
         } else {
-            drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawMouse(lg, physics, settings.keyboardTheme); lg.Restore(dsk); });
+            drawWithLayerAlpha(g, deskAlpha, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawMouse(lg, physics, settings.keyboardTheme); lg.Restore(dsk); });
         }
 
         // 2. Mini 65% Mechanical Keyboard (facing cat) + Backlit Glow
-        drawWithLayerAlpha(g, scruffDeskFade, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawKeyboard(lg, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee); lg.Restore(dsk); });
+        drawWithLayerAlpha(g, deskAlpha, [&](Gdiplus::Graphics& lg) { Gdiplus::GraphicsState dsk = lg.Save(); lg.TranslateTransform(0.0f, scruffS * 28.0f); drawKeyboard(lg, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends, settings.keyboardMarquee); lg.Restore(dsk); });
 
         // 悬空：直接使用从上游 v1.4.3 移植的专用悬空姿态（拱背 / 四爪下垂 / 垂尾 / 瞪眼）
         if (scruff > 0.02f) {
@@ -199,6 +218,12 @@ public:
 
         // 悬空拉伸 + 掉落姿态：先 Save，再统一变换，最后 Restore
         GraphicsState hangState = g.Save();
+        // 四足行走的左右重心转移（绕 seat 旋转 ±3°，wb=0 时不生效）
+        if (poseW > 0.01f) {
+            g.TranslateTransform(seatX, seatY);
+            g.RotateTransform(physics.bodyRoll.value * RadToDeg);
+            g.TranslateTransform(-seatX, -seatY);
+        }
         if (scruff > 0.02f) {
             float stretch = 1.0f + scruffS * 0.10f;
             g.TranslateTransform(seatX, seatY);
@@ -235,8 +260,26 @@ public:
         drawUnifiedSilhouette(g, seatX, seatY, headCenter, breath, physics, skin);
 
         // 6. Hind Foot (3rd simultaneous key easter egg!)
-        if (physics.hindFootActive.value > 0.03f) {
+        // 行走时让位给步态后腿，否则会同时出现三只后脚。
+        if (physics.hindFootActive.value > 0.03f && physics.walkBlend.value < 0.05f) {
             drawHindFoot(g, seatX, seatY, physics, skin);
+        }
+
+        // 6b. 行走后腿（两节关节，由步态驱动；静止时仍用躯干底部椭圆）
+        // 四足接地阴影：四只爪各投一块径向软影，抬脚越小越淡，消除"悬空面条腿"
+        if (poseW > 0.05f) {
+            auto footShadow = [&](Pt p, float restY, float rx) {
+                float lift = std::clamp((restY - p.y) / 7.0f, 0.0f, 1.0f);
+                drawContactShadow(g, p.x, CatPhysics::WalkGroundY - 0.5f, rx * (1.0f - 0.26f * lift),
+                                  poseW * (0.82f - 0.58f * lift));
+            };
+            footShadow(physics.backLeftPaw.point(), CatPhysics::BackLeftPawRest.y, 10.0f);
+            footShadow(physics.backRightPaw.point(), CatPhysics::BackRightPawRest.y, 10.0f);
+            footShadow(physics.leftPaw.point(), CatPhysics::LeftPawRest.y, 9.0f);
+            footShadow(physics.rightPaw.point(), CatPhysics::RightPawRest.y, 9.0f);
+        }
+        if (physics.walkBlend.value >= 0.05f) {
+            drawHindLegsWalking(g, seatX, seatY, physics, skin);
         }
 
         // 7. 2.5D Eyes & Whiskers (+ optional nose/mouth, yawn, angry vein)
@@ -291,7 +334,7 @@ public:
 
         // 9. Floating Keycap Badges (keyboard + mouse clicks)
         if (!physics.floatingKeycaps.empty()) {
-            drawFloatingKeycaps(g, physics);
+            if (physics.deskBlend.value > 0.6f) drawFloatingKeycaps(g, physics);
         }
 
         // 10. Subtle Petting Sparkles & Sleep Z
@@ -1204,9 +1247,53 @@ private:
         return c;
     }
 
+    // 锥形尾巴：沿三次贝塞尔取样，半宽随 t 收细，得到有体积、会收尖的尾巴（等宽 Pen 画出来是"水管"，太生硬）
+    static Gdiplus::PointF tailBez(const TailCurve& c, float t) {
+        float u = 1 - t;
+        float a = u*u*u, b = 3*u*u*t, d = 3*u*t*t, e = t*t*t;
+        return Gdiplus::PointF(a*c.root.X + b*c.c1.X + d*c.c2.X + e*c.tip.X,
+                               a*c.root.Y + b*c.c1.Y + d*c.c2.Y + e*c.tip.Y);
+    }
+
+    static void buildTailTaperPath(Gdiplus::GraphicsPath& p, const TailCurve& c, float width, float grow) {
+        using namespace Gdiplus;
+        constexpr int N = 24;
+        std::vector<PointF> L, R;
+        L.reserve(N + 1); R.reserve(N + 1);
+        for (int i = 0; i <= N; ++i) {
+            float t = (float)i / (float)N;
+            PointF pt = tailBez(c, t);
+            PointF pPrev = tailBez(c, std::max(0.0f, t - 0.01f));
+            PointF pNext = tailBez(c, std::min(1.0f, t + 0.01f));
+            float tx = pNext.X - pPrev.X, ty = pNext.Y - pPrev.Y;
+            float len = std::max(0.001f, std::hypot(tx, ty));
+            float nx = -ty / len, ny = tx / len;
+            float hw = (width * 0.5f + grow) * (1.0f - 0.46f * t * t);
+            L.push_back(PointF(pt.X + nx * hw, pt.Y + ny * hw));
+            R.push_back(PointF(pt.X - nx * hw, pt.Y - ny * hw));
+        }
+        std::vector<PointF> Rrev(R.rbegin(), R.rend());
+        p.StartFigure();
+        p.AddLines(L.data(), (INT)L.size());
+        p.AddLine(L.back(), Rrev.front());
+        p.AddLines(Rrev.data(), (INT)Rrev.size());
+        p.CloseFigure();
+    }
+
     static void drawTail(Gdiplus::Graphics& g, float seatX, float seatY, const CatPhysics& physics, const SkinSpec& skin, bool outlineOnly = false) {
         using namespace Gdiplus;
         TailCurve c = tailCurve(seatX, seatY, physics, skin);
+        // 四足时尾巴根部向躯干内部收一点，避免整条尾巴像棍子插在身体外侧
+        {
+            float wbr = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
+            if (wbr > 0.02f) {
+                float k = 0.30f * wbr;
+                c.root.X += (seatX - c.root.X) * k;
+                c.root.Y += (seatY - 10.0f - c.root.Y) * k;
+                c.c1.X   += (seatX - c.c1.X) * (k * 0.35f);
+                c.c1.Y   += (seatY - 10.0f - c.c1.Y) * (k * 0.35f);
+            }
+        }
         // 后颈悬空时尾巴绕根部滞后摆动：直接旋转贝塞尔控制点（避免 Graphics 状态泄漏）
         {
             float ang = physics.scruffTailSwing.value * 9.0f * (3.14159265f / 180.0f);
@@ -1222,7 +1309,19 @@ private:
         }
         float width = isDazed(skin) ? 13.0f : (buildOf(skin).tailWidth * skin.shape.tailThickness);
 
+        // 四足行走时尾巴改为锥形实体（坐姿仍走原等宽笔划，保证 walkBlend==0 像素级不变）
+        float wbq = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
+        bool taperTail = wbq > 0.45f && !skin.hasPartArt(SkinSpace::Tail)
+                         && !isTabby(skin) && !isDazed(skin);
+
         if (outlineOnly) {
+            if (taperTail) {
+                GraphicsPath tp;
+                buildTailTaperPath(tp, c, width, BlackOutlineW * 2.0f);
+                SolidBrush ink(blackOutline());
+                g.FillPath(&ink, &tp);
+                return;
+            }
             Pen outPen(blackOutline(), width + BlackOutlineW * 2.0f);
             outPen.SetStartCap(LineCapRound); outPen.SetEndCap(LineCapRound); outPen.SetLineJoin(LineJoinRound);
             g.DrawBezier(&outPen, c.root, c.c1, c.c2, c.tip);
@@ -1237,7 +1336,36 @@ private:
             tabby::drawTail(g, tailPen, c.root, c.c1, c.c2, c.tip);
             return;
         }
-        g.DrawBezier(&tailPen, c.root, c.c1, c.c2, c.tip);
+        if (taperTail) {
+            GraphicsPath tp;
+            buildTailTaperPath(tp, c, width, 0.0f);
+            Color tc = col(skin.palette.tail);
+            LinearGradientBrush tg(c.root, c.tip, tc, shadeCol(tc, 0.80f));
+            g.FillPath(&tg, &tp);
+            // 上缘一条柔光，尾巴才有圆柱体积
+            GraphicsState tsSt = g.Save();
+            g.SetClip(&tp);
+            Pen sheen(Color((BYTE)(wbq * 74.0f), 255, 250, 240), width * 0.30f);
+            sheen.SetStartCap(LineCapRound); sheen.SetEndCap(LineCapRound);
+            PointF h0 = tailBez(c, 0.10f), h1 = tailBez(c, 0.45f), h2 = tailBez(c, 0.80f);
+            g.DrawBezier(&sheen, PointF(h0.X - 2.0f, h0.Y - width * 0.30f),
+                         PointF(h1.X - 2.5f, h1.Y - width * 0.26f),
+                         PointF(h2.X - 1.5f, h2.Y - width * 0.18f),
+                         PointF(h2.X, h2.Y - width * 0.14f));
+            g.Restore(tsSt);
+            // 皮肤自带尾尖色时，用沿轴渐变补上尾尖段，锥形不丢尾尖配色
+            if (skin.palette.tailTip.set) {
+                GraphicsState ttSt = g.Save();
+                g.SetClip(&tp);
+                Color tt = col(skin.palette.tailTip);
+                Color tt0(0, tt.GetR(), tt.GetG(), tt.GetB());
+                LinearGradientBrush tgb(tailBez(c, 0.62f), c.tip, tt0, tt);
+                g.FillPath(&tgb, &tp);
+                g.Restore(ttSt);
+            }
+        } else {
+            g.DrawBezier(&tailPen, c.root, c.c1, c.c2, c.tip);
+        }
 
         float lie = std::clamp(physics.lieIntensity.value, 0.0f, 1.0f);
         float lieS = lie * lie * (3.0f - 2.0f * lie);
@@ -1615,6 +1743,9 @@ private:
                 g.DrawPath(&outPen, &path);
             }
         }
+
+        // 行走时后腿由 drawHindLegsWalking 单独绘制，这里提前退出以免出现四条腿重叠
+        if (physics.walkBlend.value >= 0.05f) return;
 
         // Tucked hind paws at bottom
         GraphicsState ps = g.Save();
@@ -2311,7 +2442,163 @@ private:
         }
     }
 
+    // MARK: - Walk Pose Polish
+
+    static Gdiplus::Color shadeCol(const Gdiplus::Color& c, float k) {
+        auto ch = [k](BYTE v) { return (BYTE)std::clamp((int)std::lround(v * k), 0, 255); };
+        return Gdiplus::Color(c.GetA(), ch(c.GetR()), ch(c.GetG()), ch(c.GetB()));
+    }
+
+    static Gdiplus::Color alphaCol(const Gdiplus::Color& c, int a) {
+        return Gdiplus::Color((BYTE)std::clamp(a, 0, 255), c.GetR(), c.GetG(), c.GetB());
+    }
+
+    // 四足脚掌轮廓：掌背圆弧 + 底部三趾起伏，替代单椭圆（消除"面条腿 + 圆球"的剪贴画感）
+    static void buildPawFootPath(Gdiplus::GraphicsPath& paw, float cx, float cy, float r) {
+        using namespace Gdiplus;
+        float w = r * 2.30f, h = r * 1.72f;
+        float hs = w * 0.5f, hh = h * 0.5f;
+        paw.AddBezier(PointF(cx - hs, cy + hh * 0.06f), PointF(cx - hs * 0.97f, cy - hh * 0.80f),
+                      PointF(cx - hs * 0.44f, cy - hh), PointF(cx, cy - hh));
+        paw.AddBezier(PointF(cx, cy - hh), PointF(cx + hs * 0.44f, cy - hh),
+                      PointF(cx + hs * 0.97f, cy - hh * 0.80f), PointF(cx + hs, cy + hh * 0.06f));
+        paw.AddBezier(PointF(cx + hs, cy + hh * 0.06f), PointF(cx + hs * 0.98f, cy + hh * 0.66f),
+                      PointF(cx + hs * 0.66f, cy + hh), PointF(cx + hs * 0.30f, cy + hh));
+        paw.AddBezier(PointF(cx + hs * 0.30f, cy + hh), PointF(cx + hs * 0.14f, cy + hh * 0.90f),
+                      PointF(cx + hs * 0.10f, cy + hh * 0.74f), PointF(cx, cy + hh * 0.74f));
+        paw.AddBezier(PointF(cx, cy + hh * 0.74f), PointF(cx - hs * 0.10f, cy + hh * 0.74f),
+                      PointF(cx - hs * 0.14f, cy + hh * 0.90f), PointF(cx - hs * 0.30f, cy + hh));
+        paw.AddBezier(PointF(cx - hs * 0.30f, cy + hh), PointF(cx - hs * 0.66f, cy + hh),
+                      PointF(cx - hs * 0.98f, cy + hh * 0.66f), PointF(cx - hs, cy + hh * 0.06f));
+        paw.CloseFigure();
+    }
+
+    // 爪面细节：脚背高光 + 两条趾缝
+    static void drawPawFootDetail(Gdiplus::Graphics& g, float cx, float cy, float r, const SkinSpec& skin, float shadeK = 1.0f) {
+        using namespace Gdiplus;
+        float w = r * 2.30f, h = r * 1.72f;
+        float hs = w * 0.5f, hh = h * 0.5f;
+        GraphicsPath cover;
+        buildPawFootPath(cover, cx, cy, r);
+        GraphicsState st = g.Save();
+        g.SetClip(&cover);
+        Color pawCol = shadeCol(col(skin.palette.paws), shadeK);
+        LinearGradientBrush grad(PointF(cx, cy - hh), PointF(cx, cy + hh), pawCol, shadeCol(pawCol, 0.86f));
+        g.FillPath(&grad, &cover);
+        SolidBrush hi(Color((BYTE)std::clamp((int)(58 * shadeK), 0, 255), 255, 255, 255));
+        g.FillEllipse(&hi, cx - hs * 0.56f, cy - hh * 0.74f, hs * 1.10f, hh * 0.74f);
+        // 三条趾缝 + 趾端小趾垫（写在 clip 内）：爪从"黑柱子"变成看得出脚趾的爪
+        Pen toe(alphaCol(col(skin.palette.crease), (int)(150 * shadeK)), 1.2f);
+        toe.SetStartCap(LineCapRound); toe.SetEndCap(LineCapRound);
+        g.DrawLine(&toe, PointF(cx - hs * 0.26f, cy + hh * 0.20f), PointF(cx - hs * 0.32f, cy + hh * 0.84f));
+        g.DrawLine(&toe, PointF(cx + hs * 0.26f, cy + hh * 0.20f), PointF(cx + hs * 0.32f, cy + hh * 0.84f));
+        g.DrawLine(&toe, PointF(cx, cy + hh * 0.06f), PointF(cx, cy + hh * 0.66f));
+        SolidBrush toePad(alphaCol(col(skin.palette.crease), (int)(110 * shadeK)));
+        for (int i = -1; i <= 1; ++i) {
+            float ox = cx + hs * 0.58f * (float)i;
+            float oy = cy + hh * 0.60f + (i == 0 ? hh * 0.04f : 0.0f);
+            g.FillEllipse(&toePad, ox - r * 0.17f, oy - r * 0.13f, r * 0.34f, r * 0.26f);
+        }
+        g.Restore(st);
+    }
+
+    // 脚掌接地软阴影：径向渐变，抬脚时缩小变淡
+    static void drawContactShadow(Gdiplus::Graphics& g, float cx, float cy, float rx, float strength) {
+        using namespace Gdiplus;
+        if (strength <= 0.02f) return;
+        float ry = rx * 0.36f;
+        GraphicsPath p;
+        p.AddEllipse(cx - rx, cy - ry, rx * 2.0f, ry * 2.0f);
+        PathGradientBrush br(&p);
+        br.SetCenterPoint(PointF(cx, cy));
+        br.SetCenterColor(Color((BYTE)std::clamp(52.0f * strength, 0.0f, 255.0f), 0, 0, 0));
+        Color surround[1] = { Color(0, 0, 0, 0) };
+        int cnt = 1;
+        br.SetSurroundColors(surround, &cnt);
+        g.FillPath(&br, &p);
+    }
+
+    // 腿根过渡：肩/髋与躯干交界处压一层柔光，避免腿像硬贴上去
+    static void drawLimbRootShade(Gdiplus::Graphics& g, Pt root, float r) {
+        using namespace Gdiplus;
+        GraphicsPath p;
+        p.AddEllipse(root.x - r, root.y - r, r * 2.0f, r * 2.0f);
+        PathGradientBrush br(&p);
+        br.SetCenterPoint(PointF(root.x, root.y));
+        br.SetCenterColor(Color(46, 18, 14, 12));
+        Color surround[1] = { Color(0, 18, 14, 12) };
+        int cnt = 1;
+        br.SetSurroundColors(surround, &cnt);
+        g.FillPath(&br, &p);
+    }
+
+    // 腿根焊点：在腿根与躯干交界补一层体色软垫（中心实、边缘透明），
+    // 让腿看着是"从躯干里长出来"，而不是贴在身外的独立色块
+    static void drawLimbSocket(Gdiplus::Graphics& g, Pt root, Pt toward, float r, const SkinSpec& skin, float amount) {
+        using namespace Gdiplus;
+        float a = std::clamp(amount, 0.0f, 1.0f);
+        if (a <= 0.03f || r <= 0.5f) return;
+        float cx = root.x + (toward.x - root.x) * 0.30f;
+        float cy = root.y + (toward.y - root.y) * 0.30f;
+        GraphicsPath p;
+        p.AddEllipse(cx - r, cy - r * 0.95f, r * 2.0f, r * 1.9f);
+        PathGradientBrush br(&p);
+        br.SetCenterPoint(PointF(cx, cy));
+        Color body = col(skin.palette.body);
+        br.SetCenterColor(Color((BYTE)std::clamp(255.0f * a, 0.0f, 255.0f), body.GetR(), body.GetG(), body.GetB()));
+        Color surround[1] = { Color(0, body.GetR(), body.GetG(), body.GetB()) };
+        int cnt = 1;
+        br.SetSurroundColors(surround, &cnt);
+        g.FillPath(&br, &p);
+    }
+
     // MARK: - Front Paws
+
+    // 行走后腿：臀点 → 膝 → 脚掌，两节关节由步态目标点驱动（drawLimb 复用前腿的锥形肢体绘制）
+    static void drawHindLegsWalking(Gdiplus::Graphics& g, float seatX, float seatY, const CatPhysics& physics, const SkinSpec& skin) {
+        const Build& bd = buildOf(skin);
+        float bw = skin.shape.bodyWidth;
+        float hindW = bd.hindW;
+        float stagger = skin.shape.pawStagger;
+        float leftHindX = bw == 1.0f ? bd.hindLeftX : (bd.hindLeftX + hindW * 0.5f) * bw - hindW * 0.5f;
+        float rightHindX = bw == 1.0f ? bd.hindRightX : (bd.hindRightX + hindW * 0.5f) * bw - hindW * 0.5f;
+        float rightHindY = bd.hindLeftY + (bd.hindStaggerY - bd.hindLeftY) * stagger;
+
+        float tilt = physics.bodyTilt.value;
+        float c = std::cos(tilt), sn = std::sin(tilt);
+        float sxs = 1.0f + (1.0f - physics.bodySquash.value) * 0.55f;
+        float sys = physics.bodySquash.value;
+        auto hip = [&](float lx, float ly) {
+            return Pt{ seatX + lx * sxs * c - ly * sys * sn, seatY + lx * sxs * sn + ly * sys * c };
+        };
+        float whp = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
+        float outK = 1.0f + whp * 0.52f;                          // 四足时后髋略外扩即足以露出后腿，扩太多会变成身外悬空的"第五肢"
+        float lLy = bd.hindLeftY + 1.0f, rLy = rightHindY + 1.0f;
+        float lLyW = lLy + whp * (CatPhysics::WalkHipDY - lLy);   // 髋位下移到躯干底部附近
+        float rLyW = rLy + whp * (CatPhysics::WalkHipDY - rLy);
+        Pt lHip = hip((leftHindX + hindW * 0.5f) * outK, lLyW);
+        Pt rHip = hip((rightHindX + hindW * 0.5f) * outK, rLyW);
+
+        float startW = bd.limbStartW * 0.94f * (1.0f - 0.26f * whp);
+        float endW = bd.limbEndW * 0.90f * (1.0f - 0.22f * whp);
+        // 后腿本来就短，抬脚时让膝盖额外上收一点，四条腿才不会只剩前腿在动
+        auto kneeOf = [](Pt h, Pt p, float lift) { return Pt{ (h.x + p.x) * 0.5f - 5.5f - 2.0f * lift, (h.y + p.y) * 0.5f - 3.5f - 5.0f * lift }; };
+        Pt lPaw = physics.backLeftPaw.point();
+        Pt rPaw = physics.backRightPaw.point();
+        float lLiftH = std::clamp((CatPhysics::BackLeftPawRest.y - lPaw.y) / 6.0f, 0.0f, 1.0f);
+        float rLiftH = std::clamp((CatPhysics::BackRightPawRest.y - rPaw.y) / 6.0f, 0.0f, 1.0f);
+        drawLimb(g, lHip, kneeOf(lHip, lPaw, lLiftH), lPaw, startW, endW, false, 0.78f, skin, true,
+                 0.94f, 0.74f, whp);
+        if (whp > 0.05f) drawLimbSocket(g, lHip, Pt{ seatX, seatY - 6.0f }, startW * 0.68f, skin, whp * 0.96f);
+        drawLimb(g, rHip, kneeOf(rHip, rPaw, rLiftH), rPaw, startW, endW, true, 0.78f, skin, true,
+                 0.94f, 0.74f, whp);
+        if (whp > 0.05f) drawLimbSocket(g, rHip, Pt{ seatX, seatY - 6.0f }, startW * 0.68f, skin, whp * 0.96f);
+        // 髋部与躯干交界处的柔化暗部（行走时腿根不再像硬贴上去）
+        if (whp > 0.05f) {
+            drawLimbRootShade(g, lHip, startW * 0.52f);
+            drawLimbRootShade(g, rHip, startW * 0.52f);
+        }
+    }
 
     static void drawFrontPaws(Gdiplus::Graphics& g, float seatX, float seatY, float breath, const CatPhysics& physics, const SkinSpec& skin) {
         Pt lPos = physics.leftPaw.point();
@@ -2330,30 +2617,47 @@ private:
         float idleBotX = bd.idleBotX * bw - lieS * 4.5f;
         float idleBotY = seatY + 12.0f - lieS * 4.0f;
         float shX = bd.shoulderX * bw;
-        float limbStartW = bd.limbStartW;
-        float limbEndW = bd.limbEndW;
+        float wbp = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
+        float limbStartW = bd.limbStartW * (1.0f - 0.22f * wbp);   // 四足时腿更细，避免蒲扇腿
+        float limbEndW = bd.limbEndW * (1.0f - 0.18f * wbp);
+        // 肩位：坐姿 -58（长杆腿）→ 四足 WalkShoulderDY（躯干底部附近，腿长落到 ~30）
+        float shDY = -58.0f + wbp * (CatPhysics::WalkShoulderDY + 58.0f);
 
         auto shoulder = [&](float x) -> Pt {
             float sy=physics.bodySquash.value*(1.0f-lieS*0.42f), sx=(1+(1-physics.bodySquash.value)*0.55f)*(1.0f+lieS*0.03f);
             float c=std::cos(physics.bodyTilt.value), s=std::sin(physics.bodyTilt.value);
             float floor=126+headLift+physics.headOffsetY.value+physics.headPitch.value*4.8f+breath*1.1f+42;
-            return {seatX+x*sx*c+58*sy*s, std::max(seatY+x*sx*s-58*sy*c,floor)};
+            float inX = x * (1.0f - 0.32f * wbp);      // 四足时腿根向中线内收，避免整条腿悬在躯干轮廓外
+            float dy = shDY - 11.0f * wbp;             // 并略上抬，保证起点落在躯干内部
+            return {seatX+inX*sx*c-dy*sy*s, std::max(seatY+inX*sx*s+dy*sy*c,floor)};
         };
         Pt leftShoulder=shoulder(-shX), rightShoulder=shoulder(shX);
 
-        if (lDist < 6.0f && !physics.leftPawOnMouse && !physics.leftPawTyping) {
+        if (lDist < 6.0f && !physics.leftPawOnMouse && !physics.leftPawTyping && physics.walkBlend.value < 0.05f) {
             if (lieS < 0.78f) drawIdleFrontLeg(g, { seatX - idleTopX, idleTopY }, { seatX - idleBotX, idleBotY }, true, skin);
         } else {
-            Pt mid = { (leftShoulder.x + lPos.x) * 0.5f - (physics.leftPawOnMouse ? 8.0f : 4.0f),
-                       (leftShoulder.y + lPos.y) * 0.5f - 6.0f };
-            drawLimb(g, leftShoulder, mid, lPos, limbStartW, limbEndW, false, 0.78f, skin, true);
+            // 抬脚时把膝盖往上收、往前带：前腿很长，只让脚掌上下缩会像竖杆在抖，膝盖跟着折才像迈步
+            float lLift = std::clamp((CatPhysics::LeftPawRest.y - lPos.y) / 7.0f, 0.0f, 1.0f) * physics.walkBlend.value;
+            Pt mid = { (leftShoulder.x + lPos.x) * 0.5f - (physics.leftPawOnMouse ? 8.0f : 4.0f) + 4.0f * lLift,
+                       (leftShoulder.y + lPos.y) * 0.5f - 6.0f - 9.0f * lLift };
+            drawLimb(g, leftShoulder, mid, lPos, limbStartW, limbEndW, false, 0.78f, skin, true,
+                     0.97f, 0.84f, wbp);
+            if (wbp > 0.05f) drawLimbSocket(g, leftShoulder, Pt{ seatX, seatY - 8.0f }, limbStartW * 0.66f, skin, wbp * 0.96f);
         }
 
-        if (rDist < 6.0f && !physics.rightPawTyping) {
+        if (rDist < 6.0f && !physics.rightPawTyping && physics.walkBlend.value < 0.05f) {
             if (lieS < 0.78f) drawIdleFrontLeg(g, { seatX + idleTopX, idleTopY }, { seatX + idleBotX, idleBotY }, false, skin);
         } else {
-            Pt mid = { (rightShoulder.x + rPos.x) * 0.5f + 4.0f, (rightShoulder.y + rPos.y) * 0.5f - 6.0f };
-            drawLimb(g, rightShoulder, mid, rPos, limbStartW, limbEndW, true, 0.78f, skin, true);
+            float rLift = std::clamp((CatPhysics::RightPawRest.y - rPos.y) / 7.0f, 0.0f, 1.0f) * physics.walkBlend.value;
+            Pt mid = { (rightShoulder.x + rPos.x) * 0.5f + 4.0f - 4.0f * rLift, (rightShoulder.y + rPos.y) * 0.5f - 6.0f - 9.0f * rLift };
+            drawLimb(g, rightShoulder, mid, rPos, limbStartW, limbEndW, true, 0.78f, skin, true,
+                     1.0f, 0.84f, wbp);
+            if (wbp > 0.05f) drawLimbSocket(g, rightShoulder, Pt{ seatX, seatY - 8.0f }, limbStartW * 0.66f, skin, wbp * 0.96f);
+        }
+        // 肩部与躯干交界处的柔化暗部（与后腿同一处理，四条腿的层次统一）
+        if (wbp > 0.05f) {
+            drawLimbRootShade(g, leftShoulder, limbStartW * 0.50f);
+            drawLimbRootShade(g, rightShoulder, limbStartW * 0.50f);
         }
     }
 
@@ -2486,7 +2790,8 @@ private:
     }
 
     static void drawLimb(Gdiplus::Graphics& g, Pt start, Pt ctrl, Pt end, float startW, float endW, bool outlineOnLeft,
-        float outlineAlpha, const SkinSpec& skin, bool frontPaw = false) {
+        float outlineAlpha, const SkinSpec& skin, bool frontPaw = false,
+        float shadeK = 1.0f, float waistK = 1.0f, float pawStyle = 0.0f) {
         using namespace Gdiplus;
         const SkinPalette& pal = skin.palette;
         constexpr int steps = 14;
@@ -2500,7 +2805,9 @@ private:
             Pt tan = quadTangent(start, ctrl, end, t);
             float len = std::max(0.001f, std::hypot(tan.x, tan.y));
             float nx = -tan.y / len, ny = tan.x / len;
-            float hw = (startW + (endW - startW) * t) * 0.5f;
+            float wNow = startW + (endW - startW) * t;
+            wNow *= 1.0f - (1.0f - waistK) * std::sin(t * 3.14159265f);   // 中段收窄：膝盖/踝部有型，不再是等粗面条款
+            float hw = wNow * 0.5f;
             leftEdge.push_back(PointF(p.x + nx * hw, p.y + ny * hw));
             rightEdge.push_back(PointF(p.x - nx * hw, p.y - ny * hw));
         }
@@ -2606,6 +2913,19 @@ private:
             Pen op(withAlpha(lineCol, 184), 1.25f);
             op.SetStartCap(LineCapRound); op.SetEndCap(LineCapRound); op.SetLineJoin(LineJoinRound);
             g.DrawLines(&op, outerEdge.data() + 3, (INT)outerEdge.size() - 4);
+        }
+
+        // 远侧肢体的景深压暗（后腿/对侧腿），让四条腿有前后层次而不是同一平面的面包条
+        if (shadeK < 0.999f) {
+            GraphicsState shSt = g.Save();
+            g.SetClip(&limbPath);
+            SolidBrush veil(Color((BYTE)std::clamp((1.0f - shadeK) * 300.0f, 0.0f, 88.0f), 24, 19, 16));
+            g.FillPath(&veil, &limbPath);
+            g.Restore(shSt);
+        }
+        // 四足爪形覆盖：把椭圆脚掌升级成带三趾的爪（含脚背高光与趾缝），坐姿不受影响
+        if (pawStyle > 0.5f && !isDazed(skin)) {
+            drawPawFootDetail(g, end.x, end.y, pawR * 1.30f, skin, shadeK);
         }
 
         const auto& hiEdge = outlineOnLeft ? leftEdge : rightEdge;
