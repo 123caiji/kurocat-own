@@ -32,7 +32,6 @@ using std::max;
 #include "CatPhysics.hpp"
 #include "CatRenderer.hpp"
 #include "Reminder.hpp"
-#include "PoseTune.hpp"
 const char* g_lastActivity = "startup";   // 崩溃时记录最后阶段
 
 // ---- 程序合成音效（不引入任何素材文件）----
@@ -2047,8 +2046,6 @@ void moveWindowRandomly(AppState& app) {
         FILE* mf = fopen("D:\\kaifa\\work\\kurocat-own\\dist\\wander.log", "a");
         if (mf) { fprintf(mf, "MOVE called\n"); fclose(mf); }
     }
-    // 调参模式下锁死窗口不动，否则拖动参数时窗口跟着走、光标与命中行错位
-    if (PoseTune::enabled()) return;
     if (!app.hwnd || app.wandering || app.isDragging || app.falling || app.activeResizeCorner >= 0 || app.hiddenByFullscreen) return;
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
@@ -2412,7 +2409,6 @@ void tickAndRender(AppState& app) {
     // Smart Click-Through + Petting Detection
     // 行走本帧刚移动过窗口时，wr 仍是本帧早先读到的旧矩形，命中测试/穿透判定会滞后一帧，
     // 这里刷新一次实际窗口矩形再判断。
-    if (PoseTune::enabled() && PoseTune::dragging()) setClickThrough(app.hwnd, false);   // 拖参数期间锁死穿透
     if (!app.isDragging && app.activeResizeCorner < 0) {
         GetWindowRect(app.hwnd, &wr);
         POINT cur = {};
@@ -2422,11 +2418,7 @@ void tickAndRender(AppState& app) {
                 (float)(cur.x - wr.left) / (float)w * CatPhysics::CanvasWidth,
                 (float)(cur.y - wr.top)  / (float)h * CatPhysics::CanvasHeight
             };
-            // --pose-tune 调参面板优先接管鼠标：面板区域内必须可点，面板外维持穿透
-            if (PoseTune::enabled()) {
-                setClickThrough(app.hwnd, PoseTune::hitTest(rawCp.x, rawCp.y) == -2);
-                app.hasLastHover = false;
-            } else if (app.settings.isEditMode) {
+            if (app.settings.isEditMode) {
                 int editHit = CatRenderer::hitTestEditOverlay(rawCp);
                 setClickThrough(app.hwnd, editHit < 0);
                 app.hasLastHover = false;
@@ -2476,7 +2468,6 @@ void tickAndRender(AppState& app) {
     g.ScaleTransform((float)w / CatPhysics::CanvasWidth, (float)h / CatPhysics::CanvasHeight);
     g_lastActivity = "renderer.draw";
     CatRenderer::draw(g, app.physics, app.settings, activeSkin(app));
-    PoseTune::drawPanel(g);
 
     // 呈现前重新读窗口位置：漫步/下落可能在本帧中途移动过窗口，
     // 旧代码用 tick 开头捕获的 wr 会导致移动立刻被 UpdateLayeredWindow 覆盖
@@ -2595,21 +2586,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_LBUTTONDOWN: {
-            // --pose-tune：面板区域优先，点击/按住即交给调参器
-            if (app && hwnd == app->hwnd && PoseTune::enabled()) {
-                RECT pwr = {};
-                GetWindowRect(hwnd, &pwr);
-                int pw = std::max(1, (int)(pwr.right - pwr.left));
-                int ph = std::max(1, (int)(pwr.bottom - pwr.top));
-                POINT pc = {};
-                GetCursorPos(&pc);
-                float pcx = (float)(pc.x - pwr.left) / (float)pw * CatPhysics::CanvasWidth;
-                float pcy = (float)(pc.y - pwr.top)  / (float)ph * CatPhysics::CanvasHeight;
-                if (PoseTune::onDown(pcx, pcy)) {
-                    SetCapture(hwnd);
-                    return 0;
-                }
-            }
             bool altHeld = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
             if (app && hwnd == app->hwnd && (app->settings.isEditMode || !app->settings.fullClickThrough || altHeld)) {
                 RECT wr = {};
@@ -2654,19 +2630,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         case WM_MOUSEMOVE:
-            // --pose-tune：拖动参数中，横向位移实时改值
-            if (app && hwnd == app->hwnd && PoseTune::enabled() && PoseTune::dragging()) {
-                RECT pwr = {};
-                GetWindowRect(hwnd, &pwr);
-                int pw = std::max(1, (int)(pwr.right - pwr.left));
-                int ph = std::max(1, (int)(pwr.bottom - pwr.top));
-                POINT pc = {};
-                GetCursorPos(&pc);
-                float pcx = (float)(pc.x - pwr.left) / (float)pw * CatPhysics::CanvasWidth;
-                float pcy = (float)(pc.y - pwr.top)  / (float)ph * CatPhysics::CanvasHeight;
-                PoseTune::onMove(pcx, pcy);
-                return 0;
-            }
             if (app && app->activeResizeCorner >= 0) {
                 POINT cur = {};
                 GetCursorPos(&cur);
@@ -2698,11 +2661,6 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_LBUTTONUP:
-            if (app && hwnd == app->hwnd && PoseTune::enabled() && PoseTune::dragging()) {
-                PoseTune::onUp();
-                ReleaseCapture();
-                return 0;
-            }
             if (app && app->activeResizeCorner >= 0) {
                 app->activeResizeCorner = -1;
                 ReleaseCapture();
@@ -2998,11 +2956,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     const int myVersion = versionToNumber(APP_VERSION);
     const bool forceTakeover = commandLineHasFlag(L"--takeover");   // admin relaunch
     const bool noElevate = commandLineHasFlag(L"--no-elevate");
-    // 四足姿态拖动调参模式：强制打开四足 + 左上角参数面板，拖动即改值，无需重新编译
-    if (commandLineHasFlag(L"--pose-tune")) {
-        CatPhysics::poseTuneActive = true;
-        PoseTune::enabled() = true;
-    }
     const wchar_t* kMutexName = L"Local\\Tama_SingleInstance";
 
     // Single-instance guard. Re-launching the SAME version wakes the existing cat (cancels full

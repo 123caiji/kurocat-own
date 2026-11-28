@@ -1287,11 +1287,11 @@ private:
         {
             float wbr = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
             if (wbr > 0.02f) {
-                float k = 0.55f * wbr;
-                c.root.X += (seatX + 6.0f - c.root.X) * k;
-                c.root.Y += (seatY - 14.0f - c.root.Y) * k;
-                c.c1.X   += (seatX + 18.0f - c.c1.X) * (k * 0.42f);
-                c.c1.Y   += (seatY - 12.0f - c.c1.Y) * (k * 0.42f);
+                float k = 0.30f * wbr;
+                c.root.X += (seatX - c.root.X) * k;
+                c.root.Y += (seatY - 10.0f - c.root.Y) * k;
+                c.c1.X   += (seatX - c.c1.X) * (k * 0.35f);
+                c.c1.Y   += (seatY - 10.0f - c.c1.Y) * (k * 0.35f);
             }
         }
         // 后颈悬空时尾巴绕根部滞后摆动：直接旋转贝塞尔控制点（避免 Graphics 状态泄漏）
@@ -2572,7 +2572,7 @@ private:
             return Pt{ seatX + lx * sxs * c - ly * sys * sn, seatY + lx * sxs * sn + ly * sys * c };
         };
         float whp = std::clamp(physics.walkBlend.value, 0.0f, 1.0f);
-        float outK = 1.0f + whp * CatPhysics::HindOutK;             // 外扩系数运行时可调（--pose-tune 拖动），扩太多会变成身外悬空的"第五肢"
+        float outK = 1.0f + whp * 0.52f;                          // 四足时后髋略外扩即足以露出后腿，扩太多会变成身外悬空的"第五肢"
         float lLy = bd.hindLeftY + 1.0f, rLy = rightHindY + 1.0f;
         float lLyW = lLy + whp * (CatPhysics::WalkHipDY - lLy);   // 髋位下移到躯干底部附近
         float rLyW = rLy + whp * (CatPhysics::WalkHipDY - rLy);

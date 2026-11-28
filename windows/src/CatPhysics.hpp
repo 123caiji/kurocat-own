@@ -235,29 +235,13 @@ public:
 
     // ---- 四足姿态 walkPose（P1）：正面视角下把躯干抬起、四条腿等长落地 ----
     // 全部以 walkBlend 为闸：wb==0 时无任何影响（坐姿像素级不变）
-    // v0.12.2：以下参数由 constexpr 改为运行时可调（static inline），默认值 = 定稿值；
-    //           --pose-tune 模式下用鼠标拖动实时改值并预览，无需重新编译。
-    static inline float WalkSeatDY      = -26.0f;  // seat 相对坐姿上移（226 → 200）
-    static inline float WalkGroundY     = 250.0f;  // 四足统一落地点
-    static inline float WalkShoulderDY  = 20.0f;   // 前肩相对 walk seat（腿长 = 250-220 = 30）
-    static inline float WalkHipDY       = 22.0f;   // 后髋相对 walk seat（腿长 = 250-222 = 28）
-    static inline float WalkFootReachF  = 15.0f;   // 前爪 Rest 下探（235 → 250）
-    static inline float WalkFootReachH  = 13.0f;   // 后爪 Rest 下探（237 → 250）
-    static inline float WalkHeadDY      = -20.0f;  // 头部随躯干上移量（略低于躯干，形成低头走路）
-
-    // ---- 步态可调参数（同样运行时可调，供 --pose-tune 拖动） ----
-    static inline float GaitFreqBase    = 1.10f;   // 步频基准（Hz）
-    static inline float GaitFreqSpeedK  = 0.024f;  // 步频随速度增益
-    static inline float GaitFreqMin     = 1.55f;
-    static inline float GaitFreqMax     = 2.05f;
-    static inline float GaitDuty        = 0.62f;   // 支撑相占整周期比例
-    static inline float GaitStrideGain  = 1.15f;   // 步幅总体缩放
-    static inline float GaitLiftF       = 7.0f;    // 前爪抬腿高度
-    static inline float GaitLiftH       = 6.0f;    // 后爪抬腿高度
-    static inline float HindOutK         = 0.52f;   // 后髋外扩系数（渲染层读取）
-    static inline float HindFootSplay    = 20.0f;   // 行走时后爪横向外摆量
-
-    static inline bool poseTuneActive = false;     // --pose-tune 调参模式：强制四足以便观察
+    static constexpr float WalkSeatDY      = -26.0f;  // seat 相对坐姿上移（226 → 200）
+    static constexpr float WalkGroundY     = 250.0f;  // 四足统一落地点
+    static constexpr float WalkShoulderDY  = 20.0f;   // 前肩相对 walk seat（腿长 = 250-220 = 30）
+    static constexpr float WalkHipDY       = 22.0f;   // 后髋相对 walk seat（腿长 = 250-222 = 28）
+    static constexpr float WalkFootReachF  = 15.0f;   // 前爪 Rest 下探（235 → 250）
+    static constexpr float WalkFootReachH  = 13.0f;   // 后爪 Rest 下探（237 → 250）
+    static constexpr float WalkHeadDY      = -20.0f;  // 头部随躯干上移量（略低于躯干，形成低头走路）
 
     Spring2D leftPaw{LeftPawRest};
     Spring2D rightPaw{RightPawRest};
@@ -1031,13 +1015,10 @@ public:
     // ---- 行走步态：对角小跑（LF+RH 同相 / RF+LH 反相），用 walkBlend 在静/动目标之上插值 ----
         {
             float gate = (walking && scruff <= 0.24f && dizzy <= 0.35f && lie <= 0.45f) ? 1.0f : 0.0f;
-            if (poseTuneActive) gate = 1.0f;                 // --pose-tune 调参模式强制四足，便于直接观察姿态
             walkBlend.target = gate;
             walkBlend.step(dt, 200.0f, 22.0f);
             float wb = std::clamp(walkBlend.value, 0.0f, 1.0f);
-            // 调参模式下猫是静止的，给一个虚拟步速，让步态持续跑起来便于观察
-            float tuneSpeed = poseTuneActive ? 45.0f : walkSpeedCanvas;
-            float freq = std::clamp(GaitFreqBase + tuneSpeed * GaitFreqSpeedK, GaitFreqMin, GaitFreqMax);  // 步频区间可调
+            float freq = std::clamp(1.10f + walkSpeedCanvas * 0.024f, 1.55f, 2.05f);  // 步频 1.55~2.05Hz，比原先慢一档，步子迈得更开
             if (gate > 0.5f) {
                 gaitPhase = std::fmod(gaitPhase + dt * freq * 6.2831853f, 6.2831853f);
             }
@@ -1046,12 +1027,12 @@ public:
             bodyRoll.target = wb * std::sin(gaitPhase) * 0.052f;
             if (wb > 0.002f) {
                 const float kPi     = 3.14159265f;
-                const float kDuty   = GaitDuty;    // 支撑相占整周期比例（可调）
-                const float liftF   = GaitLiftF;   // 前爪抬腿高度（可调）
-                const float liftH   = GaitLiftH;   // 后爪抬腿高度（可调）
+                const float kDuty   = 0.62f;   // 支撑相占整周期比例（trot 60% 左右最稳）
+                const float liftF   = 7.0f;    // 前爪抬腿高度（画布单位，向上为负）；抬得太低时前腿像根竖杆在抖
+                const float liftH   = 6.0f;    // 后爪抬腿高度
                 // 步幅按真实速度反推：支撑相内脚掌必须恰好以体速后移，否则就是滑步/踩空。
-                // 再乘 GaitStrideGain 补偿弹簧滞后：脚掌实际只跑出目标幅度的约八成，不补就会踩不上体速。
-                float halfStride = std::clamp(tuneSpeed / freq * kDuty * 0.5f, 2.0f, 8.0f) * GaitStrideGain;
+                // 再乘 1.15 补偿弹簧滞后：脚掌实际只跑出目标幅度的约八成，不补就会踩不上体速。
+                float halfStride = std::clamp(walkSpeedCanvas / freq * kDuty * 0.5f, 2.0f, 8.0f) * 1.15f;
                 auto gaitPoint = [&](Pt rest, float phase, float lift) {
                     float c = std::fmod(phase, 6.2831853f);
                     if (c < 0.0f) c += 6.2831853f;
@@ -1073,8 +1054,8 @@ public:
                 // 后爪同时外摆，跟外扩后的后髋对齐，避免腿斜成劈叉
                 Pt fRestL = { LeftPawRest.x,       LeftPawRest.y       + wb * WalkFootReachF };
                 Pt fRestR = { RightPawRest.x,      RightPawRest.y      + wb * WalkFootReachF };
-                Pt hRestL = { BackLeftPawRest.x  - wb * HindFootSplay, BackLeftPawRest.y  + wb * WalkFootReachH };
-                Pt hRestR = { BackRightPawRest.x + wb * HindFootSplay, BackRightPawRest.y + wb * WalkFootReachH };
+                Pt hRestL = { BackLeftPawRest.x  - wb * 20.0f, BackLeftPawRest.y  + wb * WalkFootReachH };
+                Pt hRestR = { BackRightPawRest.x + wb * 20.0f, BackRightPawRest.y + wb * WalkFootReachH };
                 // 行走时左前爪若正在鼠标/数位笔跟随，不要用步态点覆盖它的 target，
                 // 否则行走期间的鼠标反馈会被步态顶掉（键盘键入态同理）。
                 if (!leftPawTyping && !leftPawOnMouse) leftPaw.setTarget(gaitPoint(fRestL, gaitPhase, liftF));
