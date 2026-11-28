@@ -40,3 +40,5 @@ dist/*.png
 dist/*.wav
 dist/fall-debug.log
 dist/fall.log
+# 本地调试副本（含临时 exe）
+windows/srcdbg/
